@@ -1,0 +1,11 @@
+# Aktifkan Rewrite Engine
+RewriteEngine On
+
+# Jangan terapkan rule ini jika yang diakses adalah folder asli
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Jangan terapkan rule ini jika yang diakses adalah file asli yang memiliki ekstensi (seperti .css, .js, .png)
+RewriteCond %{REQUEST_FILENAME} !-f
+
+# Sembunyikan ekstensi .php
+RewriteRule ^([^\.]+)$ $1.php [NC,L]

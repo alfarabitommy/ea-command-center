@@ -1,0 +1,111 @@
+<?php
+// Pastikan file config db.php di-include saat class ini dipanggil
+require_once __DIR__ . '/../config/db.php';
+
+class JournalManager {
+    private $conn;
+
+    public function __construct() {
+        $database = new Database();
+        $this->conn = $database->getConnection();
+    }
+
+    // --------------------------------------------------------
+    // MENGAMBIL NILAI KURS USD TO IDR
+    // --------------------------------------------------------
+    public function getUsdRate() {
+        $stmt = $this->conn->prepare("SELECT setting_value FROM settings WHERE setting_key = 'usd_idr_rate'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        return $row ? (float)$row['setting_value'] : 168; // Default 168 jika tidak ditemukan
+    }
+
+    // --------------------------------------------------------
+    // MENGAMBIL SEMUA AKUN AKTIF
+    // --------------------------------------------------------
+    public function getActiveAccounts() {
+        $stmt = $this->conn->prepare("SELECT * FROM accounts WHERE status = 'Active' ORDER BY account_id ASC");
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    // --------------------------------------------------------
+    // MEMASUKKAN ATAU MEMPERBARUI AKUN
+    // --------------------------------------------------------
+    public function saveAccount($name, $initial_balance) {
+        $stmt = $this->conn->prepare("INSERT INTO accounts (account_name, initial_balance_cent) VALUES (:name, :balance)");
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':balance', $initial_balance);
+        return $stmt->execute();
+    }
+
+    // --------------------------------------------------------
+    // MEMASUKKAN LOG HARIAN BARU
+    // --------------------------------------------------------
+    public function addDailyLog($date, $account_id, $pnl_cent, $max_dd_cent, $remarks = '') {
+        $stmt = $this->conn->prepare("INSERT INTO daily_logs (date, account_id, pnl_cent, max_dd_cent, remarks) 
+                                      VALUES (:date, :account_id, :pnl, :max_dd, :remarks)");
+        $stmt->bindParam(':date', $date);
+        $stmt->bindParam(':account_id', $account_id);
+        $stmt->bindParam(':pnl', $pnl_cent);
+        $stmt->bindParam(':max_dd', $max_dd_cent);
+        $stmt->bindParam(':remarks', $remarks);
+        return $stmt->execute();
+    }
+
+    // --------------------------------------------------------
+    // MENGHITUNG TOTAL METRIK UNTUK DASHBOARD
+    // --------------------------------------------------------
+    public function getDashboardMetrics() {
+        $stmtBalance = $this->conn->prepare("SELECT SUM(initial_balance_cent) as total_initial FROM accounts WHERE status = 'Active'");
+        $stmtBalance->execute();
+        $total_initial = $stmtBalance->fetch()['total_initial'] ?? 0;
+
+        $stmtPnl = $this->conn->prepare("SELECT SUM(pnl_cent) as total_pnl FROM daily_logs d JOIN accounts a ON d.account_id = a.account_id WHERE a.status = 'Active'");
+        $stmtPnl->execute();
+        $total_pnl = $stmtPnl->fetch()['total_pnl'] ?? 0;
+
+        $current_balance = $total_initial + $total_pnl;
+        $growth_percentage = ($total_initial > 0) ? ($total_pnl / $total_initial) * 100 : 0;
+
+        return [
+            'total_initial_cent' => $total_initial,
+            'current_balance_cent' => $current_balance,
+            'total_pnl_cent' => $total_pnl,
+            'growth_percentage' => round($growth_percentage, 2)
+        ];
+    }
+
+    // --------------------------------------------------------
+    // MENGAMBIL REKAP PNL BULANAN (UNTUK FASE 5: REPORTING)
+    // --------------------------------------------------------
+    public function getMonthlyReport($year) {
+        // Mengelompokkan data berdasarkan bulan untuk tahun yang dipilih
+        $stmt = $this->conn->prepare("
+            SELECT 
+                MONTH(d.date) as month, 
+                SUM(d.pnl_cent) as total_pnl, 
+                MIN(d.max_dd_cent) as max_dd
+            FROM daily_logs d
+            JOIN accounts a ON d.account_id = a.account_id
+            WHERE YEAR(d.date) = :year AND a.status = 'Active'
+            GROUP BY MONTH(d.date)
+            ORDER BY MONTH(d.date) ASC
+        ");
+        $stmt->bindParam(':year', $year);
+        $stmt->execute();
+        $results = $stmt->fetchAll();
+
+        // Inisialisasi array default untuk 12 bulan (bernilai 0)
+        $report = array_fill(1, 12, ['total_pnl' => 0, 'max_dd' => 0]);
+        
+        // Memasukkan hasil query ke dalam array sesuai indeks bulannya
+        foreach ($results as $row) {
+            $report[(int)$row['month']]['total_pnl'] = (float)$row['total_pnl'];
+            $report[(int)$row['month']]['max_dd'] = (float)$row['max_dd'];
+        }
+        
+        return $report;
+    }
+}
+?>
