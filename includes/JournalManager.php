@@ -33,11 +33,35 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    public function saveAccount($name, $initial_balance, $category = 'Personal') {
-        $stmt = $this->conn->prepare("INSERT INTO accounts (account_name, initial_balance_cent, account_category) VALUES (:name, :balance, :category)");
+    // ========================================================
+    // MODUL MANAJEMEN AKUN TRADING (DIPERBARUI)
+    // ========================================================
+    
+    // Simpan akun baru beserta nama brokernya
+    public function saveAccount($name, $broker_name, $initial_balance, $category = 'Personal') {
+        $stmt = $this->conn->prepare("
+            INSERT INTO accounts (account_name, broker_name, initial_balance_cent, account_category, status) 
+            VALUES (:name, :broker, :balance, :category, 'Active')
+        ");
         $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':broker', $broker_name);
         $stmt->bindParam(':balance', $initial_balance);
         $stmt->bindParam(':category', $category);
+        return $stmt->execute();
+    }
+
+    // Mengambil seluruh akun (Active maupun Inactive) untuk daftar manajemen
+    public function getAllAccounts() {
+        $stmt = $this->conn->prepare("SELECT * FROM accounts ORDER BY account_category ASC, status ASC, account_id DESC");
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    // Mengubah status akun (Soft Delete)
+    public function updateAccountStatus($account_id, $status) {
+        $stmt = $this->conn->prepare("UPDATE accounts SET status = :status WHERE account_id = :id");
+        $stmt->bindParam(':status', $status);
+        $stmt->bindParam(':id', $account_id);
         return $stmt->execute();
     }
 
@@ -130,11 +154,6 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    // ========================================================
-    // MODUL FASE 9: CRM BILLING & PAMM DISTRIBUTION
-    // ========================================================
-
-    // Fungsi untuk memproses tagihan dan otomatis mencatat komisi afiliasi
     public function processClientBilling($client_id) {
         $stmt = $this->conn->prepare("SELECT * FROM clients WHERE client_id = :id");
         $stmt->bindParam(':id', $client_id);
@@ -149,13 +168,11 @@ class JournalManager {
         try {
             $this->conn->beginTransaction();
 
-            // 1. Update Klien menjadi Active + 30 Hari
             $update_stmt = $this->conn->prepare("UPDATE clients SET status = 'Active', subscription_end_date = :end_date WHERE client_id = :id");
             $update_stmt->bindParam(':end_date', $new_end_date);
             $update_stmt->bindParam(':id', $client_id);
             $update_stmt->execute();
 
-            // 2. Cetak Invoice
             $amount = ($client['tier_type'] === 'Tier_A') ? 400000 : 200000;
             $invoice_type = ($client['tier_type'] === 'Tier_A') ? 'Tier_A_400k' : 'Tier_B_200k';
             
@@ -166,7 +183,6 @@ class JournalManager {
             $inv_stmt->bindParam(':type', $invoice_type);
             $inv_stmt->execute();
 
-            // 3. Distribusi Komisi: Jika Tier A dan ada referal, marketer dapat 100k
             if ($client['tier_type'] === 'Tier_A' && !empty($client['referred_by'])) {
                 $aff_stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = total_unpaid_commission + 100000 WHERE affiliate_id = :aff_id");
                 $aff_stmt->bindParam(':aff_id', $client['referred_by']);
@@ -181,7 +197,6 @@ class JournalManager {
         }
     }
 
-    // Fungsi untuk menghitung rasio modal klien Tier B di akun Master_Joint
     public function getClientFundsDistribution($master_account_id) {
         $stmt = $this->conn->prepare("
             SELECT cf.*, c.client_name 

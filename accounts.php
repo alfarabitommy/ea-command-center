@@ -4,57 +4,53 @@ require_once __DIR__ . '/includes/JournalManager.php';
 
 if (isset($_GET['switch_portfolio'])) {
     $_SESSION['active_portfolio'] = $_GET['switch_portfolio'];
-    header("Location: clients"); 
+    header("Location: accounts"); 
     exit();
 }
 if (!isset($_SESSION['active_portfolio'])) {
     $_SESSION['active_portfolio'] = 'Personal';
 }
 $active_portfolio = $_SESSION['active_portfolio'];
-$portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
+$usd_rate = (new JournalManager())->getUsdRate();
 
 $journal = new JournalManager();
-$usd_rate = $journal->getUsdRate();
 
-// Proses Add Klien
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_client') {
-    $client_name = trim($_POST['client_name']);
-    $tier_type = $_POST['tier_type'];
-    $referred_by = $_POST['referred_by'];
+// Proses Add Account
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_account') {
+    $account_name = trim($_POST['account_name']);
+    $broker_name = trim($_POST['broker_name']);
+    $initial_balance = (float)$_POST['initial_balance'];
+    $category = $_POST['account_category'];
 
-    if ($journal->addClient($client_name, $tier_type, $referred_by)) {
-        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
+    if ($journal->saveAccount($account_name, $broker_name, $initial_balance, $category)) {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] AKUN TRADING BARU BERHASIL DIDAFTARKAN.</div>";
     } else {
-        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN AKUN.</div>";
     }
-    header("Location: clients");
+    header("Location: accounts");
     exit();
 }
 
-// Proses Billing & Komisi
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'process_billing') {
-    $client_id = $_POST['client_id'];
-    if ($journal->processClientBilling($client_id)) {
-        $_SESSION['flash_msg'] = "<div class='bg-electric-blue text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] BILLING APPROVED. SUBSCRIPTION EXTENDED 30 DAYS.</div>";
-    } else {
-        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] BILLING FAILED.</div>";
-    }
-    header("Location: clients");
+// Proses Update Status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'update_status') {
+    $account_id = $_POST['account_id'];
+    $new_status = $_POST['new_status'];
+    $journal->updateAccountStatus($account_id, $new_status);
+    header("Location: accounts");
     exit();
 }
 
 $message = $_SESSION['flash_msg'] ?? '';
 unset($_SESSION['flash_msg']);
 
-$affiliates = $journal->getAffiliates();
-$clients_data = $journal->getClients();
+$all_accounts = $journal->getAllAccounts();
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EA Command Center - Client CRM</title>
+    <title>EA Command Center - Account Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script>
@@ -67,8 +63,7 @@ $clients_data = $journal->getClients();
                         'terminal-text': '#E0E0E0',
                         'neon-green': '#00FF00',
                         'neon-red': '#FF3333',
-                        'electric-blue': '#00E5FF',
-                        'warning-yellow': '#FFD700'
+                        'electric-blue': '#00E5FF'
                     },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
@@ -99,7 +94,7 @@ $clients_data = $journal->getClients();
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
             </button>
         </div>
-        <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between">
+        <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between overflow-y-auto">
             <div>
                 <a href="index" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
@@ -113,16 +108,17 @@ $clients_data = $journal->getClients();
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                     <span class="nav-text">Annual Report</span>
                 </a>
-                <a href="clients" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+
+                <a href="clients" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
                     <span class="nav-text">Client CRM</span>
                 </a>
                 <a href="distribution" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     <span class="nav-text">Profit Dist.</span>
                 </a>
-                <a href="accounts" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                <a href="accounts" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
                     <span class="nav-text">Accounts</span>
                 </a>
             </div>
@@ -135,25 +131,14 @@ $clients_data = $journal->getClients();
     </aside>
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
-        
         <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
-                    <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
-                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
-                        <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
-                        <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
-                    </select>
-                </form>
+                <span class="text-electric-blue font-mono text-sm font-bold">DATABASE: ACCOUNTS LEDGER</span>
             </div>
             <div class="flex space-x-6 text-sm">
                 <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
                     <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
-                </div>
-                <div>
-                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
                 </div>
                 <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SERVER TIME:</span> 
@@ -163,36 +148,35 @@ $clients_data = $journal->getClients();
         </header>
 
         <div class="p-6 flex-1 flex flex-col">
-            <h1 class="text-xl font-bold font-mono text-gray-400 border-b border-gray-800 pb-2 mb-6">CLIENT_WATCHLIST_MODULE</h1>
+            <h1 class="text-xl font-bold font-mono text-gray-400 border-b border-gray-800 pb-2 mb-6">ACCOUNT_MANAGEMENT_MODULE</h1>
             
             <?= $message ?>
 
             <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg mb-8 shrink-0">
-                <h2 class="text-electric-blue font-mono text-sm font-bold mb-4">[ NEW CLIENT DEPLOYMENT ]</h2>
-                <form method="POST" action="" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <input type="hidden" name="action" value="add_client">
+                <h2 class="text-electric-blue font-mono text-sm font-bold mb-4">[ REGISTER NEW ACCOUNT ]</h2>
+                <form method="POST" action="" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <input type="hidden" name="action" value="add_account">
                     <div>
-                        <label class="block text-gray-500 text-xs font-mono mb-2">NAMA KLIEN</label>
-                        <input type="text" name="client_name" required autocomplete="off" class="input-dark w-full px-3 py-2 rounded">
+                        <label class="block text-gray-500 text-xs font-mono mb-2">ACCOUNT NAME / ID</label>
+                        <input type="text" name="account_name" required autocomplete="off" placeholder="Misal: 240289034" class="input-dark w-full px-3 py-2 rounded">
                     </div>
                     <div>
-                        <label class="block text-gray-500 text-xs font-mono mb-2">TIER PAKET (30 HARI)</label>
-                        <select name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
-                            <option value="Tier_A">Tier A (EA VPS - 400k)</option>
-                            <option value="Tier_B">Tier B (Joint Slot - 200k)</option>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">BROKER NAME</label>
+                        <input type="text" name="broker_name" required autocomplete="off" placeholder="Misal: Exness, FBS" class="input-dark w-full px-3 py-2 rounded">
+                    </div>
+                    <div>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">INITIAL BALANCE (CENT)</label>
+                        <input type="number" step="0.01" name="initial_balance" required placeholder="Modal Awal" class="input-dark w-full px-3 py-2 rounded text-neon-green">
+                    </div>
+                    <div>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">LEDGER CATEGORY</label>
+                        <select name="account_category" required class="input-dark w-full px-3 py-2 rounded">
+                            <option value="Personal">Personal Equity</option>
+                            <option value="Master_Joint">Managed Funds (PAMM)</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-gray-500 text-xs font-mono mb-2">REFERRED BY (MARKETER)</label>
-                        <select name="referred_by" class="input-dark w-full px-3 py-2 rounded text-gray-400">
-                            <option value="">-- Organik / Tanpa Marketer --</option>
-                            <?php foreach($affiliates as $af): ?>
-                                <option value="<?= $af['affiliate_id'] ?>"><?= htmlspecialchars($af['marketer_name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <button type="submit" class="w-full bg-gray-800 hover:bg-neon-green hover:text-black text-neon-green font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-neon-green">
+                        <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue">
                             EXECUTE >
                         </button>
                     </div>
@@ -203,67 +187,45 @@ $clients_data = $journal->getClients();
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-gray-900 border-b border-gray-700 font-mono text-xs text-gray-400">
-                            <th class="p-4 uppercase tracking-wider">ID</th>
-                            <th class="p-4 uppercase tracking-wider">Client Name</th>
-                            <th class="p-4 uppercase tracking-wider">Tier Type</th>
-                            <th class="p-4 uppercase tracking-wider">Status</th>
-                            <th class="p-4 uppercase tracking-wider">Time Remaining</th>
-                            <th class="p-4 uppercase tracking-wider">Marketer</th>
+                            <th class="p-4 uppercase tracking-wider">Account ID</th>
+                            <th class="p-4 uppercase tracking-wider">Broker</th>
+                            <th class="p-4 uppercase tracking-wider">Category</th>
+                            <th class="p-4 uppercase tracking-wider text-right">Initial Balance (Cent)</th>
+                            <th class="p-4 uppercase tracking-wider text-center">Status</th>
                             <th class="p-4 uppercase tracking-wider text-right">Action</th>
                         </tr>
                     </thead>
                     <tbody class="font-mono text-sm">
-                        <?php if(empty($clients_data)): ?>
-                            <tr><td colspan="7" class="p-4 text-center text-gray-600">-- NO ACTIVE CLIENTS DETECTED --</td></tr>
+                        <?php if(empty($all_accounts)): ?>
+                            <tr><td colspan="6" class="p-4 text-center text-gray-600">-- NO ACCOUNTS DETECTED --</td></tr>
                         <?php else: ?>
-                            <?php foreach($clients_data as $client): 
-                                $now_ts = time();
-                                $target_date = ($client['status'] == 'Trial') ? $client['trial_end_date'] : $client['subscription_end_date'];
-                                $target_ts = strtotime($target_date);
-                                $diff_seconds = $target_ts - $now_ts;
-                                
-                                $status_color = "";
-                                if ($client['status'] == 'Expired') {
-                                    $status_color = "bg-red-900 text-neon-red border border-red-500";
-                                } else if ($client['status'] == 'Trial') {
-                                    $status_color = "bg-yellow-900 text-warning-yellow border border-yellow-500";
-                                } else { 
-                                    $status_color = "bg-green-900 text-neon-green border border-green-500";
-                                }
-                            ?>
-                            <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
-                                <td class="p-4 text-gray-500">#<?= str_pad($client['client_id'], 4, '0', STR_PAD_LEFT) ?></td>
-                                <td class="p-4 text-white font-bold"><?= htmlspecialchars($client['client_name']) ?></td>
-                                <td class="p-4 text-gray-400"><?= str_replace('_', ' ', $client['tier_type']) ?></td>
-                                <td class="p-4">
-                                    <span class="px-2 py-1 text-xs rounded font-bold <?= $status_color ?>">
-                                        <?= strtoupper($client['status']) ?>
+                            <?php foreach($all_accounts as $acc): ?>
+                            <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors <?= $acc['status'] == 'Inactive' ? 'opacity-50' : '' ?>">
+                                <td class="p-4 text-white font-bold"><?= htmlspecialchars($acc['account_name']) ?></td>
+                                <td class="p-4 text-gray-400"><?= htmlspecialchars($acc['broker_name'] ?? 'N/A') ?></td>
+                                <td class="p-4 text-electric-blue"><?= str_replace('_', ' ', $acc['account_category']) ?></td>
+                                <td class="p-4 text-right number-format"><?= number_format($acc['initial_balance_cent'], 2, '.', ',') ?></td>
+                                <td class="p-4 text-center">
+                                    <span class="px-2 py-1 text-xs rounded font-bold <?= $acc['status'] == 'Active' ? 'bg-green-900 text-neon-green border border-green-500' : 'bg-gray-700 text-gray-400 border border-gray-500' ?>">
+                                        <?= strtoupper($acc['status']) ?>
                                     </span>
                                 </td>
-                                <td class="p-4">
-                                    <?php if ($client['status'] == 'Expired'): ?>
-                                        <span class="text-neon-red animate-pulse font-bold">TIME IS UP</span>
-                                    <?php else: ?>
-                                        <span class="countdown-timer font-bold <?= $client['status'] == 'Trial' ? 'text-warning-yellow' : 'text-neon-green' ?>" 
-                                              data-remaining-seconds="<?= $diff_seconds ?>" 
-                                              data-status="<?= $client['status'] ?>">
-                                              CALCULATING...
-                                        </span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="p-4 text-gray-500"><?= $client['marketer_name'] ?? '-' ?></td>
                                 <td class="p-4 text-right">
-                                    <?php if ($client['status'] == 'Expired' || $client['status'] == 'Trial'): ?>
-                                        <form method="POST" action="" class="inline-block">
-                                            <input type="hidden" name="action" value="process_billing">
-                                            <input type="hidden" name="client_id" value="<?= $client['client_id'] ?>">
-                                            <button type="submit" onclick="return confirm('Proses penagihan untuk klien ini? Fitur otomatisasi komisi (Tier A) akan berjalan.')" class="text-xs bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:bg-electric-blue hover:border-electric-blue px-3 py-1 rounded transition-colors">
-                                                PROCESS BILLING
+                                    <form method="POST" action="" class="inline-block">
+                                        <input type="hidden" name="action" value="update_status">
+                                        <input type="hidden" name="account_id" value="<?= $acc['account_id'] ?>">
+                                        <?php if ($acc['status'] == 'Active'): ?>
+                                            <input type="hidden" name="new_status" value="Inactive">
+                                            <button type="submit" onclick="return confirm('Nonaktifkan akun ini? Akun ini tidak akan muncul lagi di halaman entri data.')" class="text-xs bg-transparent border border-red-800 text-neon-red hover:text-white hover:bg-neon-red px-3 py-1 rounded transition-colors">
+                                                DISABLE
                                             </button>
-                                        </form>
-                                    <?php else: ?>
-                                        <span class="text-xs text-gray-600">NO ACTION REQ.</span>
-                                    <?php endif; ?>
+                                        <?php else: ?>
+                                            <input type="hidden" name="new_status" value="Active">
+                                            <button type="submit" class="text-xs bg-transparent border border-green-800 text-neon-green hover:text-black hover:bg-neon-green px-3 py-1 rounded transition-colors">
+                                                ENABLE
+                                            </button>
+                                        <?php endif; ?>
+                                    </form>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
@@ -317,32 +279,6 @@ $clients_data = $journal->getClients();
         setInterval(() => {
             const clockEl = document.getElementById('clock');
             if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
-        }, 1000);
-
-        setInterval(() => {
-            document.querySelectorAll('.countdown-timer').forEach(el => {
-                let seconds = parseInt(el.getAttribute('data-remaining-seconds'));
-                let status = el.getAttribute('data-status');
-                
-                if (seconds <= 0) {
-                    el.innerText = "TIME IS UP";
-                    el.className = "text-neon-red animate-pulse font-bold";
-                    return; 
-                }
-                
-                seconds--;
-                el.setAttribute('data-remaining-seconds', seconds);
-                
-                if (status === 'Trial') {
-                    let h = Math.floor(seconds / 3600);
-                    let m = Math.floor((seconds % 3600) / 60);
-                    let s = seconds % 60;
-                    el.innerText = `${h.toString().padStart(2, '0')}H ${m.toString().padStart(2, '0')}M ${s.toString().padStart(2, '0')}S`;
-                } else {
-                    let d = Math.floor(seconds / 86400);
-                    el.innerText = `${d} DAYS`;
-                }
-            });
         }, 1000);
     </script>
 </body>
