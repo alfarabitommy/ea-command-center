@@ -33,11 +33,6 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    // ========================================================
-    // MODUL MANAJEMEN AKUN TRADING (DIPERBARUI)
-    // ========================================================
-    
-    // Simpan akun baru beserta nama brokernya
     public function saveAccount($name, $broker_name, $initial_balance, $category = 'Personal') {
         $stmt = $this->conn->prepare("
             INSERT INTO accounts (account_name, broker_name, initial_balance_cent, account_category, status) 
@@ -50,14 +45,12 @@ class JournalManager {
         return $stmt->execute();
     }
 
-    // Mengambil seluruh akun (Active maupun Inactive) untuk daftar manajemen
     public function getAllAccounts() {
         $stmt = $this->conn->prepare("SELECT * FROM accounts ORDER BY account_category ASC, status ASC, account_id DESC");
         $stmt->execute();
         return $stmt->fetchAll();
     }
 
-    // Mengubah status akun (Soft Delete)
     public function updateAccountStatus($account_id, $status) {
         $stmt = $this->conn->prepare("UPDATE accounts SET status = :status WHERE account_id = :id");
         $stmt->bindParam(':status', $status);
@@ -197,36 +190,71 @@ class JournalManager {
         }
     }
 
-    public function getClientFundsDistribution($master_account_id) {
-        $stmt = $this->conn->prepare("
-            SELECT cf.*, c.client_name 
+    // ========================================================
+    // ENGINE PAMM 1-ON-1 DYNAMIC RATIO (Pembaruan Fase 9)
+    // ========================================================
+    public function get1on1Distribution($master_account_id) {
+        // 1. Dapatkan Modal Awal Akun (Cent)
+        $stmtAcc = $this->conn->prepare("SELECT account_name, initial_balance_cent FROM accounts WHERE account_id = :id");
+        $stmtAcc->bindParam(':id', $master_account_id);
+        $stmtAcc->execute();
+        $account = $stmtAcc->fetch();
+
+        if (!$account) return null;
+
+        // 2. Konversi Cent ke USD, lalu ke IDR untuk perhitungan rasio
+        $usd_rate = $this->getUsdRate();
+        $total_account_usd = $account['initial_balance_cent'] / 100;
+        $total_account_idr = $total_account_usd * $usd_rate;
+
+        // 3. Dapatkan Modal Klien 1-on-1 (Asumsi hanya ada 1 klien aktif per akun Master)
+        $stmtFund = $this->conn->prepare("
+            SELECT cf.capital_amount_idr, c.client_name 
             FROM client_funds cf
             JOIN clients c ON cf.client_id = c.client_id
             WHERE cf.associated_master_account_id = :master_id AND c.status = 'Active'
+            LIMIT 1
         ");
-        $stmt->bindParam(':master_id', $master_account_id);
-        $stmt->execute();
-        $funds = $stmt->fetchAll();
+        $stmtFund->bindParam(':master_id', $master_account_id);
+        $stmtFund->execute();
+        $fund = $stmtFund->fetch();
 
-        $total_pool = 0;
-        foreach ($funds as $f) {
-            $total_pool += (float)$f['capital_amount_idr'];
-        }
-
-        $distribution = [];
-        foreach ($funds as $f) {
-            $capital = (float)$f['capital_amount_idr'];
-            $percentage = ($total_pool > 0) ? ($capital / $total_pool) * 100 : 0;
-            $distribution[] = [
-                'client_name' => $f['client_name'],
-                'capital' => $capital,
-                'percentage' => round($percentage, 2)
+        // 4. Kalkulasi Rasio Dinamis
+        if (!$fund) {
+            // Jika tidak ada klien, 100% laba adalah milik Tommy
+            return [
+                'account_name' => $account['account_name'],
+                'total_capital_idr' => $total_account_idr,
+                'tommy_capital_idr' => $total_account_idr,
+                'tommy_ratio' => 100,
+                'has_client' => false,
+                'client_name' => 'N/A (Personal Equity)',
+                'client_capital_idr' => 0,
+                'client_ratio' => 0
             ];
         }
 
+        $client_idr = (float)$fund['capital_amount_idr'];
+        $tommy_idr = $total_account_idr - $client_idr;
+
+        // Proteksi Matematika (Mencegah pembagian nol)
+        if ($total_account_idr <= 0) {
+            $client_ratio = 50;
+            $tommy_ratio = 50;
+        } else {
+            $client_ratio = ($client_idr / $total_account_idr) * 100;
+            $tommy_ratio = ($tommy_idr / $total_account_idr) * 100;
+        }
+
         return [
-            'total_pool' => $total_pool,
-            'clients' => $distribution
+            'account_name' => $account['account_name'],
+            'total_capital_idr' => $total_account_idr,
+            'tommy_capital_idr' => $tommy_idr,
+            'tommy_ratio' => round($tommy_ratio, 2),
+            'has_client' => true,
+            'client_name' => $fund['client_name'],
+            'client_capital_idr' => $client_idr,
+            'client_ratio' => round($client_ratio, 2)
         ];
     }
 }
