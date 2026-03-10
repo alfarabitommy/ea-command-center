@@ -116,7 +116,6 @@ if (!isset($_SESSION['user_id'])) {
 
 <!-- /includes/JournalManager.php -->
 <?php
-// Pastikan file config db.php di-include saat class ini dipanggil
 require_once __DIR__ . '/../config/db.php';
 
 class JournalManager {
@@ -127,19 +126,13 @@ class JournalManager {
         $this->conn = $database->getConnection();
     }
 
-    // --------------------------------------------------------
-    // MENGAMBIL NILAI KURS USD TO IDR
-    // --------------------------------------------------------
     public function getUsdRate() {
         $stmt = $this->conn->prepare("SELECT setting_value FROM settings WHERE setting_key = 'usd_idr_rate'");
         $stmt->execute();
         $row = $stmt->fetch();
-        return $row ? (float)$row['setting_value'] : 168; // Default 168 jika tidak ditemukan
+        return $row ? (float)$row['setting_value'] : 168;
     }
 
-    // --------------------------------------------------------
-    // MENGAMBIL SEMUA AKUN AKTIF (TERFILTER BERDASARKAN KATEGORI)
-    // --------------------------------------------------------
     public function getActiveAccounts($category = null) {
         $sql = "SELECT * FROM accounts WHERE status = 'Active'";
         if ($category) {
@@ -155,9 +148,6 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    // --------------------------------------------------------
-    // MEMASUKKAN ATAU MEMPERBARUI AKUN
-    // --------------------------------------------------------
     public function saveAccount($name, $initial_balance, $category = 'Personal') {
         $stmt = $this->conn->prepare("INSERT INTO accounts (account_name, initial_balance_cent, account_category) VALUES (:name, :balance, :category)");
         $stmt->bindParam(':name', $name);
@@ -166,9 +156,6 @@ class JournalManager {
         return $stmt->execute();
     }
 
-    // --------------------------------------------------------
-    // MEMASUKKAN LOG HARIAN BARU
-    // --------------------------------------------------------
     public function addDailyLog($date, $account_id, $pnl_cent, $max_dd_cent, $remarks = '') {
         $stmt = $this->conn->prepare("INSERT INTO daily_logs (date, account_id, pnl_cent, max_dd_cent, remarks) 
                                       VALUES (:date, :account_id, :pnl, :max_dd, :remarks)");
@@ -180,9 +167,6 @@ class JournalManager {
         return $stmt->execute();
     }
 
-    // --------------------------------------------------------
-    // MENGHITUNG TOTAL METRIK UNTUK DASHBOARD (TERFILTER KATEGORI)
-    // --------------------------------------------------------
     public function getDashboardMetrics($category = 'Personal') {
         $stmtBalance = $this->conn->prepare("SELECT SUM(initial_balance_cent) as total_initial FROM accounts WHERE status = 'Active' AND account_category = :category");
         $stmtBalance->bindParam(':category', $category);
@@ -205,20 +189,12 @@ class JournalManager {
         ];
     }
 
-    // --------------------------------------------------------
-    // MENGAMBIL REKAP PNL BULANAN (TERFILTER KATEGORI)
-    // --------------------------------------------------------
     public function getMonthlyReport($year, $category = 'Personal') {
         $stmt = $this->conn->prepare("
-            SELECT 
-                MONTH(d.date) as month, 
-                SUM(d.pnl_cent) as total_pnl, 
-                MIN(d.max_dd_cent) as max_dd
-            FROM daily_logs d
-            JOIN accounts a ON d.account_id = a.account_id
+            SELECT MONTH(d.date) as month, SUM(d.pnl_cent) as total_pnl, MIN(d.max_dd_cent) as max_dd
+            FROM daily_logs d JOIN accounts a ON d.account_id = a.account_id
             WHERE YEAR(d.date) = :year AND a.status = 'Active' AND a.account_category = :category
-            GROUP BY MONTH(d.date)
-            ORDER BY MONTH(d.date) ASC
+            GROUP BY MONTH(d.date) ORDER BY MONTH(d.date) ASC
         ");
         $stmt->bindParam(':year', $year);
         $stmt->bindParam(':category', $category);
@@ -226,13 +202,55 @@ class JournalManager {
         $results = $stmt->fetchAll();
 
         $report = array_fill(1, 12, ['total_pnl' => 0, 'max_dd' => 0]);
-        
         foreach ($results as $row) {
             $report[(int)$row['month']]['total_pnl'] = (float)$row['total_pnl'];
             $report[(int)$row['month']]['max_dd'] = (float)$row['max_dd'];
         }
-        
         return $report;
+    }
+
+    // ========================================================
+    // MODUL CRM (PHASE 8 LOGIC)
+    // ========================================================
+    
+    // Ambil daftar tim marketing
+    public function getAffiliates() {
+        $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY marketer_name ASC");
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    // Pendaftaran Klien Baru (Otomatis set Trial 48 Jam)
+    public function addClient($name, $tier_type, $referred_by = null) {
+        $ref_val = empty($referred_by) ? null : $referred_by;
+        
+        $stmt = $this->conn->prepare("
+            INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
+            VALUES (:name, :tier, 'Trial', DATE_ADD(NOW(), INTERVAL 48 HOUR), :ref)
+        ");
+        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(':tier', $tier_type);
+        $stmt->bindParam(':ref', $ref_val);
+        return $stmt->execute();
+    }
+
+    // Mengambil daftar klien beserta logika Auto-Expired
+    public function getClients() {
+        // 1. Eksekusi Auto-Update: Ubah status ke Expired jika Trial / Subscription sudah lewat batas waktu (NOW)
+        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Trial' AND trial_end_date < NOW()");
+        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Active' AND subscription_end_date < NOW()");
+
+        // 2. Tarik data terupdate
+        $stmt = $this->conn->prepare("
+            SELECT c.*, a.marketer_name 
+            FROM clients c 
+            LEFT JOIN affiliates a ON c.referred_by = a.affiliate_id 
+            ORDER BY 
+                FIELD(c.status, 'Expired', 'Trial', 'Active'), 
+                c.created_at DESC
+        ");
+        $stmt->execute();
+        return $stmt->fetchAll();
     }
 }
 ?>
@@ -324,6 +342,305 @@ echo "Silakan cek tabel daily_logs di database Anda.";
 ?>
 <!-- end file /tools/migrate_csv.php -->
 
+<!-- /clients.php -->
+<?php
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/JournalManager.php';
+
+if (isset($_GET['switch_portfolio'])) {
+    $_SESSION['active_portfolio'] = $_GET['switch_portfolio'];
+    header("Location: clients"); 
+    exit();
+}
+if (!isset($_SESSION['active_portfolio'])) {
+    $_SESSION['active_portfolio'] = 'Personal';
+}
+$active_portfolio = $_SESSION['active_portfolio'];
+$portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
+
+$journal = new JournalManager();
+$usd_rate = $journal->getUsdRate();
+
+$message = '';
+
+// Proses Penambahan Klien Baru
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $client_name = trim($_POST['client_name']);
+    $tier_type = $_POST['tier_type'];
+    $referred_by = $_POST['referred_by'];
+
+    if ($journal->addClient($client_name, $tier_type, $referred_by)) {
+        $message = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
+    } else {
+        $message = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
+    }
+}
+
+$affiliates = $journal->getAffiliates();
+$clients_data = $journal->getClients();
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EA Command Center - Client CRM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'terminal-black': '#000000',
+                        'terminal-panel': '#111111',
+                        'terminal-text': '#E0E0E0',
+                        'neon-green': '#00FF00',
+                        'neon-red': '#FF3333',
+                        'electric-blue': '#00E5FF',
+                        'warning-yellow': '#FFD700'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #000000; color: #E0E0E0; }
+        .number-format { font-family: 'JetBrains Mono', monospace; }
+        .input-dark { background-color: #000; border: 1px solid #333; color: #00FF00; font-family: 'JetBrains Mono', monospace; outline: none; transition: border 0.2s;}
+        .input-dark:focus { border-color: #00E5FF; }
+        .sidebar-transition { transition: width 0.3s ease-in-out; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative shrink-0">
+        <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
+            <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
+            <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+            </button>
+        </div>
+        <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between">
+            <div>
+                <a href="index" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="input" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                    <span class="nav-text">Data Entry</span>
+                </a>
+                <a href="report" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                    <span class="nav-text">Annual Report</span>
+                </a>
+                <a href="clients" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+                    <span class="nav-text">Client CRM</span>
+                </a>
+            </div>
+
+            <a href="logout" class="group block py-2 px-3 hover:bg-red-900 rounded text-gray-400 hover:text-red-500 transition-colors flex items-center whitespace-nowrap overflow-hidden border border-transparent hover:border-red-500 mt-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-red-500 group-hover:text-red-400 transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+                <span class="nav-text text-sm">System Logout</span>
+            </a>
+        </nav>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+        
+        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
+            <div class="flex items-center space-x-6">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
+                    <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
+                        <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
+                        <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
+                    </select>
+                </form>
+            </div>
+            <div class="flex space-x-6 text-sm">
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
+                    <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
+                </div>
+                <div>
+                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
+                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                </div>
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SERVER TIME:</span> 
+                    <span id="clock" class="number-format text-terminal-text"></span>
+                </div>
+            </div>
+        </header>
+
+        <div class="p-6 flex-1 flex flex-col">
+            <h1 class="text-xl font-bold font-mono text-gray-400 border-b border-gray-800 pb-2 mb-6">CLIENT_WATCHLIST_MODULE</h1>
+            
+            <?= $message ?>
+
+            <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg mb-8 shrink-0">
+                <h2 class="text-electric-blue font-mono text-sm font-bold mb-4">[ NEW CLIENT DEPLOYMENT ]</h2>
+                <form method="POST" action="" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">NAMA KLIEN</label>
+                        <input type="text" name="client_name" required autocomplete="off" class="input-dark w-full px-3 py-2 rounded">
+                    </div>
+                    <div>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">TIER PAKET (30 HARI)</label>
+                        <select name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
+                            <option value="Tier_A">Tier A (EA VPS - 400k)</option>
+                            <option value="Tier_B">Tier B (Joint Slot - 200k)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-500 text-xs font-mono mb-2">REFERRED BY (MARKETER)</label>
+                        <select name="referred_by" class="input-dark w-full px-3 py-2 rounded text-gray-400">
+                            <option value="">-- Organik / Tanpa Marketer --</option>
+                            <?php foreach($affiliates as $af): ?>
+                                <option value="<?= $af['affiliate_id'] ?>"><?= htmlspecialchars($af['marketer_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="submit" class="w-full bg-gray-800 hover:bg-neon-green hover:text-black text-neon-green font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-neon-green">
+                            EXECUTE >
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto shrink-0 mb-6">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-900 border-b border-gray-700 font-mono text-xs text-gray-400">
+                            <th class="p-4 uppercase tracking-wider">ID</th>
+                            <th class="p-4 uppercase tracking-wider">Client Name</th>
+                            <th class="p-4 uppercase tracking-wider">Tier Type</th>
+                            <th class="p-4 uppercase tracking-wider">Status</th>
+                            <th class="p-4 uppercase tracking-wider">Time Remaining</th>
+                            <th class="p-4 uppercase tracking-wider">Marketer</th>
+                            <th class="p-4 uppercase tracking-wider text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="font-mono text-sm">
+                        <?php if(empty($clients_data)): ?>
+                            <tr><td colspan="7" class="p-4 text-center text-gray-600">-- NO ACTIVE CLIENTS DETECTED --</td></tr>
+                        <?php else: ?>
+                            <?php foreach($clients_data as $client): 
+                                // Logika Countdown Matematis
+                                $now = new DateTime();
+                                $target_date = ($client['status'] == 'Trial') ? $client['trial_end_date'] : $client['subscription_end_date'];
+                                $target = new DateTime($target_date);
+                                
+                                $time_left = "";
+                                $status_color = "";
+                                
+                                if ($client['status'] == 'Expired') {
+                                    $time_left = "TIME IS UP";
+                                    $status_color = "bg-red-900 text-neon-red border border-red-500";
+                                } else {
+                                    $diff = $now->diff($target);
+                                    if ($client['status'] == 'Trial') {
+                                        $hours = ($diff->days * 24) + $diff->h;
+                                        $time_left = $hours . "H " . $diff->i . "M";
+                                        $status_color = "bg-yellow-900 text-warning-yellow border border-yellow-500";
+                                    } else { // Active
+                                        $time_left = $diff->days . " DAYS";
+                                        $status_color = "bg-green-900 text-neon-green border border-green-500";
+                                    }
+                                }
+                            ?>
+                            <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                                <td class="p-4 text-gray-500">#<?= str_pad($client['client_id'], 4, '0', STR_PAD_LEFT) ?></td>
+                                <td class="p-4 text-white font-bold"><?= htmlspecialchars($client['client_name']) ?></td>
+                                <td class="p-4 text-gray-400"><?= str_replace('_', ' ', $client['tier_type']) ?></td>
+                                <td class="p-4">
+                                    <span class="px-2 py-1 text-xs rounded font-bold <?= $status_color ?>">
+                                        <?= strtoupper($client['status']) ?>
+                                    </span>
+                                </td>
+                                <td class="p-4 <?= $client['status'] == 'Expired' ? 'text-neon-red animate-pulse' : 'text-gray-300' ?>">
+                                    <?= $time_left ?>
+                                </td>
+                                <td class="p-4 text-gray-500"><?= $client['marketer_name'] ?? '-' ?></td>
+                                <td class="p-4 text-right">
+                                    <?php if ($client['status'] == 'Expired'): ?>
+                                        <button class="text-xs bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:bg-electric-blue px-3 py-1 rounded transition-colors">
+                                            PROCESS BILLING
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-600">NO ACTION REQ.</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="flex-1"></div>
+        </div>
+
+        <footer class="mt-auto border-t border-gray-800 bg-[#0a0a0a] py-4 text-center shrink-0 w-full">
+            <p class="font-mono text-xs text-gray-600">
+                &copy; <?= date('Y') ?> Tommy Alfarabi. All rights reserved. | EA Command Center V2.0
+            </p>
+        </footer>
+    </main>
+
+    <script>
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('toggle-sidebar');
+        const navTexts = document.querySelectorAll('.nav-text');
+        const logoText = document.getElementById('logo-text');
+
+        if(localStorage.getItem('ea_sidebar_collapsed') === 'true') collapseSidebar();
+
+        toggleBtn.addEventListener('click', () => {
+            if (sidebar.classList.contains('w-64')) {
+                collapseSidebar();
+                localStorage.setItem('ea_sidebar_collapsed', 'true');
+            } else {
+                expandSidebar();
+                localStorage.setItem('ea_sidebar_collapsed', 'false');
+            }
+        });
+
+        function collapseSidebar() {
+            sidebar.classList.replace('w-64', 'w-16');
+            logoText.classList.add('opacity-0');
+            setTimeout(() => logoText.classList.add('hidden'), 150);
+            navTexts.forEach(txt => txt.classList.add('hidden'));
+        }
+
+        function expandSidebar() {
+            sidebar.classList.replace('w-16', 'w-64');
+            logoText.classList.remove('hidden');
+            setTimeout(() => logoText.classList.remove('opacity-0'), 10);
+            navTexts.forEach(txt => txt.classList.remove('hidden'));
+        }
+
+        setInterval(() => {
+            const clockEl = document.getElementById('clock');
+            if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
+        }, 1000);
+    </script>
+</body>
+</html>
+<!-- end file /clients.php -->
+
 <!-- /index.php -->
 <?php
 require_once __DIR__ . '/includes/auth.php';
@@ -413,6 +730,10 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                     </svg>
                     <span class="nav-text">Annual Report</span>
+                </a>
+                <a href="clients" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+                    <span class="nav-text">Client CRM</span>
                 </a>
             </div>
 
@@ -731,6 +1052,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                     </svg>
                     <span class="nav-text">Annual Report</span>
+                </a>
+                <a href="clients" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+                    <span class="nav-text">Client CRM</span>
                 </a>
             </div>
 
@@ -1072,6 +1397,10 @@ $total_annual_pnl = 0;
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                     </svg>
                     <span class="nav-text">Annual Report</span>
+                </a>
+                <a href="clients" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+                    <span class="nav-text">Client CRM</span>
                 </a>
             </div>
 
