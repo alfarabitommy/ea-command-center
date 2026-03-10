@@ -74,7 +74,7 @@ $total_annual_pnl = 0;
 </head>
 <body class="flex h-screen overflow-hidden">
 
-    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative">
+    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative shrink-0">
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
             <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
             <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
@@ -114,12 +114,13 @@ $total_annual_pnl = 0;
         </nav>
     </aside>
 
-    <main class="flex-1 flex flex-col h-screen overflow-y-auto">
-        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0">
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+        
+        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
                     <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
-                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm py-1 outline-none font-bold cursor-pointer">
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
                         <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
                         <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
                     </select>
@@ -127,19 +128,23 @@ $total_annual_pnl = 0;
             </div>
             
             <div class="flex space-x-6 text-sm">
-                <div>
+                <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
-                    <span class="text-neon-green animate-pulse font-mono">ONLINE</span>
+                    <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
                 <div>
                     <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                </div>
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SERVER TIME:</span> 
+                    <span id="clock" class="number-format text-terminal-text"></span>
                 </div>
             </div>
         </header>
 
-        <div class="p-6">
-            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6">
+        <div class="p-6 flex-1 flex flex-col">
+            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6 shrink-0">
                 <h1 class="text-xl font-bold font-mono text-gray-400">ANNUAL_PNL_MATRIX_<?= $selected_year ?> <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
                 
                 <form method="GET" action="" class="flex items-center space-x-2">
@@ -154,7 +159,7 @@ $total_annual_pnl = 0;
                 </form>
             </div>
 
-            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto">
+            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto shrink-0 mb-6">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-gray-900 border-b border-gray-700 font-mono text-xs text-gray-400">
@@ -201,10 +206,19 @@ $total_annual_pnl = 0;
                     </tfoot>
                 </table>
             </div>
+            
+            <div class="flex-1"></div>
         </div>
+
+        <footer class="mt-auto border-t border-gray-800 bg-[#0a0a0a] py-4 text-center shrink-0 w-full">
+            <p class="font-mono text-xs text-gray-600">
+                &copy; <?= date('Y') ?> Tommy Alfarabi. All rights reserved. | EA Command Center V2.0
+            </p>
+        </footer>
     </main>
 
     <script>
+        // Logika UI Sidebar & Jam
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggle-sidebar');
         const navTexts = document.querySelectorAll('.nav-text');
@@ -237,7 +251,8 @@ $total_annual_pnl = 0;
         }
 
         setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB');
+            const clockEl = document.getElementById('clock');
+            if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
         }, 1000);
     </script>
 </body>

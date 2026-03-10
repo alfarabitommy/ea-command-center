@@ -326,7 +326,7 @@ echo "Silakan cek tabel daily_logs di database Anda.";
 
 <!-- /index.php -->
 <?php
-require_once __DIR__ . '/includes/auth.php'; // Proteksi Keamanan
+require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/JournalManager.php';
 
 // ---------------------------------------------------------
@@ -334,22 +334,18 @@ require_once __DIR__ . '/includes/JournalManager.php';
 // ---------------------------------------------------------
 if (isset($_GET['switch_portfolio'])) {
     $_SESSION['active_portfolio'] = $_GET['switch_portfolio'];
-    // Redirect ke clean URL untuk membuang parameter GET dari address bar
     header("Location: index"); 
     exit();
 }
-// Default state jika belum ada
 if (!isset($_SESSION['active_portfolio'])) {
     $_SESSION['active_portfolio'] = 'Personal';
 }
 $active_portfolio = $_SESSION['active_portfolio'];
 
-// Tarik data menggunakan mesin yang sudah terfilter
 $journal = new JournalManager();
 $metrics = $journal->getDashboardMetrics($active_portfolio);
 $usd_rate = $journal->getUsdRate();
 
-// Label untuk UI
 $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
 ?>
 <!DOCTYPE html>
@@ -389,7 +385,7 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
 </head>
 <body class="flex h-screen overflow-hidden">
 
-    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative">
+    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative shrink-0">
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
             <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
             <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
@@ -429,13 +425,13 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
         </nav>
     </aside>
 
-    <main class="flex-1 flex flex-col h-screen overflow-y-auto">
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
         
-        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0">
+        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
                     <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
-                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm py-1 outline-none font-bold cursor-pointer">
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
                         <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
                         <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
                     </select>
@@ -443,23 +439,27 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
             </div>
             
             <div class="flex space-x-6 text-sm">
-                <div>
-                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
+                    <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
                 <div>
+                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
+                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                </div>
+                <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SERVER TIME:</span> 
                     <span id="clock" class="number-format text-terminal-text"></span>
                 </div>
             </div>
         </header>
 
-        <div class="p-6">
-            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6">
+        <div class="p-6 flex-1 flex flex-col">
+            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6 shrink-0">
                 <h1 class="text-xl font-bold font-mono text-gray-400">PORTFOLIO_OVERVIEW <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
             </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 shrink-0">
                 <div class="bg-terminal-panel p-5 rounded border border-gray-800 shadow-lg">
                     <div class="text-gray-500 text-xs font-mono mb-2">TOTAL INITIAL BALANCE (CENT)</div>
                     <div class="text-2xl number-format"><?= number_format($metrics['total_initial_cent'], 2, '.', ',') ?></div>
@@ -484,7 +484,7 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 shrink-0">
                 <div class="bg-terminal-panel p-4 rounded border border-gray-800 shadow-lg relative h-80">
                     <h2 class="text-gray-500 text-xs font-mono mb-2 absolute top-4 left-4 z-10">CUMULATIVE EQUITY CURVE</h2>
                     <canvas id="equityChart"></canvas>
@@ -495,7 +495,15 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
                     <canvas id="pnlDdChart"></canvas>
                 </div>
             </div>
+            
+            <div class="flex-1"></div>
         </div>
+
+        <footer class="mt-auto border-t border-gray-800 bg-[#0a0a0a] py-4 text-center shrink-0">
+            <p class="font-mono text-xs text-gray-600">
+                &copy; <?= date('Y') ?> Tommy Alfarabi. All rights reserved. | EA Command Center V2.0
+            </p>
+        </footer>
     </main>
 
     <script>
@@ -532,7 +540,8 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
         }
 
         setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB');
+            const clockEl = document.getElementById('clock');
+            if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
         }, 1000);
 
         // ==========================================
@@ -618,7 +627,7 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
 
 <!-- /input.php -->
 <?php
-require_once __DIR__ . '/includes/auth.php'; // Proteksi Keamanan
+require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/JournalManager.php';
 
 // ---------------------------------------------------------
@@ -635,7 +644,6 @@ if (!isset($_SESSION['active_portfolio'])) {
 $active_portfolio = $_SESSION['active_portfolio'];
 
 $journal = new JournalManager();
-// Mengambil akun HANYA yang sesuai dengan portofolio yang sedang aktif
 $accounts = $journal->getActiveAccounts($active_portfolio);
 $message = '';
 $usd_rate = $journal->getUsdRate();
@@ -695,7 +703,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body class="flex h-screen overflow-hidden">
 
-    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative">
+    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative shrink-0">
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
             <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
             <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
@@ -735,12 +743,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </nav>
     </aside>
 
-    <main class="flex-1 overflow-y-auto p-6 flex flex-col items-center">
-        <div class="w-full flex justify-between items-center border-b border-gray-800 pb-4 mb-6 text-sm">
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+        
+        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
                     <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
-                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm py-1 outline-none font-bold cursor-pointer">
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
                         <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
                         <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
                     </select>
@@ -748,68 +757,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             
             <div class="flex space-x-6 text-sm">
-                <div>
+                <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
-                    <span class="text-neon-green animate-pulse font-mono">ONLINE</span>
+                    <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
                 <div>
                     <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                </div>
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SERVER TIME:</span> 
+                    <span id="clock" class="number-format text-terminal-text"></span>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <div class="w-full max-w-2xl">
-            <h1 class="text-xl font-bold mb-6 font-mono text-gray-400 border-b border-gray-800 pb-2">DATA_ENTRY_MODULE <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
-            
-            <?= $message ?>
+        <div class="p-6 flex-1 flex flex-col items-center">
+            <div class="w-full max-w-2xl">
+                <h1 class="text-xl font-bold mb-6 font-mono text-gray-400 border-b border-gray-800 pb-2">DATA_ENTRY_MODULE <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
+                
+                <?= $message ?>
 
-            <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg">
-                <form method="POST" action="">
-                    <div class="grid grid-cols-2 gap-6 mb-4">
-                        <div>
-                            <label class="block text-gray-500 text-xs font-mono mb-2">TANGGAL TRANSAKSI</label>
-                            <input type="date" name="date" required value="<?= date('Y-m-d') ?>" class="input-dark w-full px-3 py-2 rounded">
+                <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg mb-6 shrink-0">
+                    <form method="POST" action="">
+                        <div class="grid grid-cols-2 gap-6 mb-4">
+                            <div>
+                                <label class="block text-gray-500 text-xs font-mono mb-2">TANGGAL TRANSAKSI</label>
+                                <input type="date" name="date" required value="<?= date('Y-m-d') ?>" class="input-dark w-full px-3 py-2 rounded">
+                            </div>
+                            <div>
+                                <label class="block text-gray-500 text-xs font-mono mb-2">TARGET AKUN</label>
+                                <select name="account_id" required class="input-dark w-full px-3 py-2 rounded">
+                                    <?php if(empty($accounts)): ?>
+                                        <option value="">-- TIDAK ADA AKUN AKTIF --</option>
+                                    <?php else: ?>
+                                        <?php foreach($accounts as $acc): ?>
+                                            <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-gray-500 text-xs font-mono mb-2">TARGET AKUN</label>
-                            <select name="account_id" required class="input-dark w-full px-3 py-2 rounded">
-                                <?php if(empty($accounts)): ?>
-                                    <option value="">-- TIDAK ADA AKUN AKTIF --</option>
-                                <?php else: ?>
-                                    <?php foreach($accounts as $acc): ?>
-                                        <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div class="grid grid-cols-2 gap-6 mb-4">
-                        <div>
-                            <label class="block text-gray-500 text-xs font-mono mb-2">PNL HARIAN (CENT)</label>
-                            <input type="number" step="0.01" name="pnl_cent" required placeholder="Contoh: 150.50 atau -50.00" class="input-dark w-full px-3 py-2 rounded">
+                        <div class="grid grid-cols-2 gap-6 mb-4">
+                            <div>
+                                <label class="block text-gray-500 text-xs font-mono mb-2">PNL HARIAN (CENT)</label>
+                                <input type="number" step="0.01" name="pnl_cent" required placeholder="Contoh: 150.50 atau -50.00" class="input-dark w-full px-3 py-2 rounded">
+                            </div>
+                            <div>
+                                <label class="block text-gray-500 text-xs font-mono mb-2">MAX DRAWDOWN (CENT)</label>
+                                <input type="number" step="0.01" name="max_dd_cent" required placeholder="Contoh: -20.50" class="input-dark w-full px-3 py-2 rounded text-neon-red">
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-gray-500 text-xs font-mono mb-2">MAX DRAWDOWN (CENT)</label>
-                            <input type="number" step="0.01" name="max_dd_cent" required placeholder="Contoh: -20.50" class="input-dark w-full px-3 py-2 rounded text-neon-red">
+
+                        <div class="mb-6">
+                            <label class="block text-gray-500 text-xs font-mono mb-2">REMARKS / STRATEGY NOTES (Opsional)</label>
+                            <input type="text" name="remarks" placeholder="Contoh: Golden Risk v3.05 Jarak 70" class="input-dark w-full px-3 py-2 rounded text-gray-300">
                         </div>
-                    </div>
 
-                    <div class="mb-6">
-                        <label class="block text-gray-500 text-xs font-mono mb-2">REMARKS / STRATEGY NOTES (Opsional)</label>
-                        <input type="text" name="remarks" placeholder="Contoh: Golden Risk v3.05 Jarak 70" class="input-dark w-full px-3 py-2 rounded text-gray-300">
-                    </div>
-
-                    <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-3 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue">
-                        [ EXECUTE DATA INSERT ]
-                    </button>
-                </form>
+                        <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-3 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue">
+                            [ EXECUTE DATA INSERT ]
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="flex-1"></div>
             </div>
         </div>
+
+        <footer class="mt-auto border-t border-gray-800 bg-[#0a0a0a] py-4 text-center shrink-0 w-full">
+            <p class="font-mono text-xs text-gray-600">
+                &copy; <?= date('Y') ?> Tommy Alfarabi. All rights reserved. | EA Command Center V2.0
+            </p>
+        </footer>
     </main>
 
     <script>
+        // Logika UI Sidebar & Jam
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggle-sidebar');
         const navTexts = document.querySelectorAll('.nav-text');
@@ -840,6 +864,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setTimeout(() => logoText.classList.remove('opacity-0'), 10);
             navTexts.forEach(txt => txt.classList.remove('hidden'));
         }
+
+        setInterval(() => {
+            const clockEl = document.getElementById('clock');
+            if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
+        }, 1000);
     </script>
 </body>
 </html>
@@ -1015,7 +1044,7 @@ $total_annual_pnl = 0;
 </head>
 <body class="flex h-screen overflow-hidden">
 
-    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative">
+    <aside id="sidebar" class="bg-terminal-panel w-64 border-r border-gray-800 sidebar-transition flex flex-col z-10 relative shrink-0">
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
             <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
             <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
@@ -1055,12 +1084,13 @@ $total_annual_pnl = 0;
         </nav>
     </aside>
 
-    <main class="flex-1 flex flex-col h-screen overflow-y-auto">
-        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0">
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
+        
+        <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
                     <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
-                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm py-1 outline-none font-bold cursor-pointer">
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm outline-none font-bold cursor-pointer">
                         <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
                         <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
                     </select>
@@ -1068,19 +1098,23 @@ $total_annual_pnl = 0;
             </div>
             
             <div class="flex space-x-6 text-sm">
-                <div>
+                <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
-                    <span class="text-neon-green animate-pulse font-mono">ONLINE</span>
+                    <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
                 <div>
                     <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
+                </div>
+                <div class="hidden md:block">
+                    <span class="text-gray-500 font-mono">SERVER TIME:</span> 
+                    <span id="clock" class="number-format text-terminal-text"></span>
                 </div>
             </div>
         </header>
 
-        <div class="p-6">
-            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6">
+        <div class="p-6 flex-1 flex flex-col">
+            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6 shrink-0">
                 <h1 class="text-xl font-bold font-mono text-gray-400">ANNUAL_PNL_MATRIX_<?= $selected_year ?> <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
                 
                 <form method="GET" action="" class="flex items-center space-x-2">
@@ -1095,7 +1129,7 @@ $total_annual_pnl = 0;
                 </form>
             </div>
 
-            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto">
+            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto shrink-0 mb-6">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-gray-900 border-b border-gray-700 font-mono text-xs text-gray-400">
@@ -1142,10 +1176,19 @@ $total_annual_pnl = 0;
                     </tfoot>
                 </table>
             </div>
+            
+            <div class="flex-1"></div>
         </div>
+
+        <footer class="mt-auto border-t border-gray-800 bg-[#0a0a0a] py-4 text-center shrink-0 w-full">
+            <p class="font-mono text-xs text-gray-600">
+                &copy; <?= date('Y') ?> Tommy Alfarabi. All rights reserved. | EA Command Center V2.0
+            </p>
+        </footer>
     </main>
 
     <script>
+        // Logika UI Sidebar & Jam
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggle-sidebar');
         const navTexts = document.querySelectorAll('.nav-text');
@@ -1178,7 +1221,8 @@ $total_annual_pnl = 0;
         }
 
         setInterval(() => {
-            document.getElementById('clock').innerText = new Date().toLocaleTimeString('en-GB');
+            const clockEl = document.getElementById('clock');
+            if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
         }, 1000);
     </script>
 </body>
