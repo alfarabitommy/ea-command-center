@@ -16,20 +16,26 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
 $journal = new JournalManager();
 $usd_rate = $journal->getUsdRate();
 
-$message = '';
-
-// Proses Penambahan Klien Baru
+// Proses Penambahan Klien Baru dengan Pola PRG (Post/Redirect/Get)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_name = trim($_POST['client_name']);
     $tier_type = $_POST['tier_type'];
     $referred_by = $_POST['referred_by'];
 
     if ($journal->addClient($client_name, $tier_type, $referred_by)) {
-        $message = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
+        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
     } else {
-        $message = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
     }
+    
+    // Redirect untuk menghancurkan data POST agar tidak ter-submit ulang saat di-refresh
+    header("Location: clients");
+    exit();
 }
+
+// Mengambil pesan sukses/error dari Session, lalu menghapusnya
+$message = $_SESSION['flash_msg'] ?? '';
+unset($_SESSION['flash_msg']);
 
 $affiliates = $journal->getAffiliates();
 $clients_data = $journal->getClients();
@@ -193,27 +199,19 @@ $clients_data = $journal->getClients();
                             <tr><td colspan="7" class="p-4 text-center text-gray-600">-- NO ACTIVE CLIENTS DETECTED --</td></tr>
                         <?php else: ?>
                             <?php foreach($clients_data as $client): 
-                                // Logika Countdown Matematis
-                                $now = new DateTime();
+                                // Modifikasi Pengambilan Waktu untuk Javascript Timer
+                                $now_ts = time();
                                 $target_date = ($client['status'] == 'Trial') ? $client['trial_end_date'] : $client['subscription_end_date'];
-                                $target = new DateTime($target_date);
+                                $target_ts = strtotime($target_date);
+                                $diff_seconds = $target_ts - $now_ts;
                                 
-                                $time_left = "";
                                 $status_color = "";
-                                
                                 if ($client['status'] == 'Expired') {
-                                    $time_left = "TIME IS UP";
                                     $status_color = "bg-red-900 text-neon-red border border-red-500";
-                                } else {
-                                    $diff = $now->diff($target);
-                                    if ($client['status'] == 'Trial') {
-                                        $hours = ($diff->days * 24) + $diff->h;
-                                        $time_left = $hours . "H " . $diff->i . "M";
-                                        $status_color = "bg-yellow-900 text-warning-yellow border border-yellow-500";
-                                    } else { // Active
-                                        $time_left = $diff->days . " DAYS";
-                                        $status_color = "bg-green-900 text-neon-green border border-green-500";
-                                    }
+                                } else if ($client['status'] == 'Trial') {
+                                    $status_color = "bg-yellow-900 text-warning-yellow border border-yellow-500";
+                                } else { 
+                                    $status_color = "bg-green-900 text-neon-green border border-green-500";
                                 }
                             ?>
                             <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
@@ -225,8 +223,16 @@ $clients_data = $journal->getClients();
                                         <?= strtoupper($client['status']) ?>
                                     </span>
                                 </td>
-                                <td class="p-4 <?= $client['status'] == 'Expired' ? 'text-neon-red animate-pulse' : 'text-gray-300' ?>">
-                                    <?= $time_left ?>
+                                <td class="p-4">
+                                    <?php if ($client['status'] == 'Expired'): ?>
+                                        <span class="text-neon-red animate-pulse font-bold">TIME IS UP</span>
+                                    <?php else: ?>
+                                        <span class="countdown-timer font-bold <?= $client['status'] == 'Trial' ? 'text-warning-yellow' : 'text-neon-green' ?>" 
+                                              data-remaining-seconds="<?= $diff_seconds ?>" 
+                                              data-status="<?= $client['status'] ?>">
+                                              CALCULATING...
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td class="p-4 text-gray-500"><?= $client['marketer_name'] ?? '-' ?></td>
                                 <td class="p-4 text-right">
@@ -291,6 +297,39 @@ $clients_data = $journal->getClients();
             const clockEl = document.getElementById('clock');
             if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
         }, 1000);
+
+        // ========================================================
+        // ENGINE LIVE COUNTDOWN TIMER V2.0
+        // ========================================================
+        setInterval(() => {
+            document.querySelectorAll('.countdown-timer').forEach(el => {
+                let seconds = parseInt(el.getAttribute('data-remaining-seconds'));
+                let status = el.getAttribute('data-status');
+                
+                // Jika waktu habis
+                if (seconds <= 0) {
+                    el.innerText = "TIME IS UP";
+                    el.className = "text-neon-red animate-pulse font-bold";
+                    return; // Hentikan kalkulasi untuk elemen ini
+                }
+                
+                // Kurangi 1 detik
+                seconds--;
+                el.setAttribute('data-remaining-seconds', seconds);
+                
+                // Format Tampilan
+                if (status === 'Trial') {
+                    let h = Math.floor(seconds / 3600);
+                    let m = Math.floor((seconds % 3600) / 60);
+                    let s = seconds % 60;
+                    // Padding nol agar terlihat rapi seperti jam digital
+                    el.innerText = `${h.toString().padStart(2, '0')}H ${m.toString().padStart(2, '0')}M ${s.toString().padStart(2, '0')}S`;
+                } else {
+                    let d = Math.floor(seconds / 86400);
+                    el.innerText = `${d} DAYS`;
+                }
+            });
+        }, 1000); // Trigger setiap 1.000 milidetik (1 detik)
     </script>
 </body>
 </html>

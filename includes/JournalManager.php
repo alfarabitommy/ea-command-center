@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 
+// Menyeragamkan zona waktu secara absolut untuk mencegah distorsi 48 Jam
+date_default_timezone_set('Asia/Jakarta');
+
 class JournalManager {
     private $conn;
 
@@ -93,37 +96,38 @@ class JournalManager {
     }
 
     // ========================================================
-    // MODUL CRM (PHASE 8 LOGIC)
+    // MODUL CRM (PHASE 8 LOGIC) - DIPERBARUI
     // ========================================================
     
-    // Ambil daftar tim marketing
     public function getAffiliates() {
         $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY marketer_name ASC");
         $stmt->execute();
         return $stmt->fetchAll();
     }
 
-    // Pendaftaran Klien Baru (Otomatis set Trial 48 Jam)
     public function addClient($name, $tier_type, $referred_by = null) {
         $ref_val = empty($referred_by) ? null : $referred_by;
         
+        // Mencegah MySQL Timezone Desync dengan mengirimkan timestamp absolut dari PHP
+        $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
+        
         $stmt = $this->conn->prepare("
             INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
-            VALUES (:name, :tier, 'Trial', DATE_ADD(NOW(), INTERVAL 48 HOUR), :ref)
+            VALUES (:name, :tier, 'Trial', :trial_end, :ref)
         ");
         $stmt->bindParam(':name', $name);
         $stmt->bindParam(':tier', $tier_type);
+        $stmt->bindParam(':trial_end', $trial_end);
         $stmt->bindParam(':ref', $ref_val);
         return $stmt->execute();
     }
 
-    // Mengambil daftar klien beserta logika Auto-Expired
     public function getClients() {
-        // 1. Eksekusi Auto-Update: Ubah status ke Expired jika Trial / Subscription sudah lewat batas waktu (NOW)
-        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Trial' AND trial_end_date < NOW()");
-        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Active' AND subscription_end_date < NOW()");
+        // Eksekusi Auto-Update menggunakan waktu absolut PHP
+        $now = date('Y-m-d H:i:s');
+        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Trial' AND trial_end_date < '$now'");
+        $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Active' AND subscription_end_date < '$now'");
 
-        // 2. Tarik data terupdate
         $stmt = $this->conn->prepare("
             SELECT c.*, a.marketer_name 
             FROM clients c 
