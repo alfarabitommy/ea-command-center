@@ -21,10 +21,19 @@ class JournalManager {
     }
 
     // --------------------------------------------------------
-    // MENGAMBIL SEMUA AKUN AKTIF
+    // MENGAMBIL SEMUA AKUN AKTIF (TERFILTER BERDASARKAN KATEGORI)
     // --------------------------------------------------------
-    public function getActiveAccounts() {
-        $stmt = $this->conn->prepare("SELECT * FROM accounts WHERE status = 'Active' ORDER BY account_id ASC");
+    public function getActiveAccounts($category = null) {
+        $sql = "SELECT * FROM accounts WHERE status = 'Active'";
+        if ($category) {
+            $sql .= " AND account_category = :category";
+        }
+        $sql .= " ORDER BY account_id ASC";
+        
+        $stmt = $this->conn->prepare($sql);
+        if ($category) {
+            $stmt->bindParam(':category', $category);
+        }
         $stmt->execute();
         return $stmt->fetchAll();
     }
@@ -32,10 +41,11 @@ class JournalManager {
     // --------------------------------------------------------
     // MEMASUKKAN ATAU MEMPERBARUI AKUN
     // --------------------------------------------------------
-    public function saveAccount($name, $initial_balance) {
-        $stmt = $this->conn->prepare("INSERT INTO accounts (account_name, initial_balance_cent) VALUES (:name, :balance)");
+    public function saveAccount($name, $initial_balance, $category = 'Personal') {
+        $stmt = $this->conn->prepare("INSERT INTO accounts (account_name, initial_balance_cent, account_category) VALUES (:name, :balance, :category)");
         $stmt->bindParam(':name', $name);
         $stmt->bindParam(':balance', $initial_balance);
+        $stmt->bindParam(':category', $category);
         return $stmt->execute();
     }
 
@@ -54,14 +64,16 @@ class JournalManager {
     }
 
     // --------------------------------------------------------
-    // MENGHITUNG TOTAL METRIK UNTUK DASHBOARD
+    // MENGHITUNG TOTAL METRIK UNTUK DASHBOARD (TERFILTER KATEGORI)
     // --------------------------------------------------------
-    public function getDashboardMetrics() {
-        $stmtBalance = $this->conn->prepare("SELECT SUM(initial_balance_cent) as total_initial FROM accounts WHERE status = 'Active'");
+    public function getDashboardMetrics($category = 'Personal') {
+        $stmtBalance = $this->conn->prepare("SELECT SUM(initial_balance_cent) as total_initial FROM accounts WHERE status = 'Active' AND account_category = :category");
+        $stmtBalance->bindParam(':category', $category);
         $stmtBalance->execute();
         $total_initial = $stmtBalance->fetch()['total_initial'] ?? 0;
 
-        $stmtPnl = $this->conn->prepare("SELECT SUM(pnl_cent) as total_pnl FROM daily_logs d JOIN accounts a ON d.account_id = a.account_id WHERE a.status = 'Active'");
+        $stmtPnl = $this->conn->prepare("SELECT SUM(d.pnl_cent) as total_pnl FROM daily_logs d JOIN accounts a ON d.account_id = a.account_id WHERE a.status = 'Active' AND a.account_category = :category");
+        $stmtPnl->bindParam(':category', $category);
         $stmtPnl->execute();
         $total_pnl = $stmtPnl->fetch()['total_pnl'] ?? 0;
 
@@ -77,10 +89,9 @@ class JournalManager {
     }
 
     // --------------------------------------------------------
-    // MENGAMBIL REKAP PNL BULANAN (UNTUK FASE 5: REPORTING)
+    // MENGAMBIL REKAP PNL BULANAN (TERFILTER KATEGORI)
     // --------------------------------------------------------
-    public function getMonthlyReport($year) {
-        // Mengelompokkan data berdasarkan bulan untuk tahun yang dipilih
+    public function getMonthlyReport($year, $category = 'Personal') {
         $stmt = $this->conn->prepare("
             SELECT 
                 MONTH(d.date) as month, 
@@ -88,18 +99,17 @@ class JournalManager {
                 MIN(d.max_dd_cent) as max_dd
             FROM daily_logs d
             JOIN accounts a ON d.account_id = a.account_id
-            WHERE YEAR(d.date) = :year AND a.status = 'Active'
+            WHERE YEAR(d.date) = :year AND a.status = 'Active' AND a.account_category = :category
             GROUP BY MONTH(d.date)
             ORDER BY MONTH(d.date) ASC
         ");
         $stmt->bindParam(':year', $year);
+        $stmt->bindParam(':category', $category);
         $stmt->execute();
         $results = $stmt->fetchAll();
 
-        // Inisialisasi array default untuk 12 bulan (bernilai 0)
         $report = array_fill(1, 12, ['total_pnl' => 0, 'max_dd' => 0]);
         
-        // Memasukkan hasil query ke dalam array sesuai indeks bulannya
         foreach ($results as $row) {
             $report[(int)$row['month']]['total_pnl'] = (float)$row['total_pnl'];
             $report[(int)$row['month']]['max_dd'] = (float)$row['max_dd'];

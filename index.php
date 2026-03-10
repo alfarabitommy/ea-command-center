@@ -2,9 +2,28 @@
 require_once __DIR__ . '/includes/auth.php'; // Proteksi Keamanan
 require_once __DIR__ . '/includes/JournalManager.php';
 
+// ---------------------------------------------------------
+// LOGIKA SWITCHER PORTOFOLIO V2.0
+// ---------------------------------------------------------
+if (isset($_GET['switch_portfolio'])) {
+    $_SESSION['active_portfolio'] = $_GET['switch_portfolio'];
+    // Redirect ke clean URL untuk membuang parameter GET dari address bar
+    header("Location: index"); 
+    exit();
+}
+// Default state jika belum ada
+if (!isset($_SESSION['active_portfolio'])) {
+    $_SESSION['active_portfolio'] = 'Personal';
+}
+$active_portfolio = $_SESSION['active_portfolio'];
+
+// Tarik data menggunakan mesin yang sudah terfilter
 $journal = new JournalManager();
-$metrics = $journal->getDashboardMetrics();
+$metrics = $journal->getDashboardMetrics($active_portfolio);
 $usd_rate = $journal->getUsdRate();
+
+// Label untuk UI
+$portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -47,13 +66,13 @@ $usd_rate = $journal->getUsdRate();
         <div class="h-16 flex items-center justify-between px-4 border-b border-gray-800">
             <span id="logo-text" class="font-bold text-electric-blue text-lg tracking-widest">EA.CMD_</span>
             <button id="toggle-sidebar" class="text-gray-400 hover:text-white focus:outline-none">
-                &#9776;
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
             </button>
         </div>
         <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between">
             <div>
-                <a href="input" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors">
+                <a href="index" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                     </svg>
                     <span class="nav-text">Dashboard</span>
@@ -84,11 +103,18 @@ $usd_rate = $journal->getUsdRate();
     </aside>
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto">
+        
         <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0">
-            <div class="text-sm font-mono">
-                <span class="text-gray-500">SYS.STATUS:</span> <span class="text-neon-green animate-pulse">ONLINE</span>
-                <span class="text-gray-500 ml-4">USER:</span> <span class="text-white"><?= strtoupper($_SESSION['username']) ?></span>
+            <div class="flex items-center space-x-6">
+                <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2">
+                    <span class="text-gray-500 font-mono text-xs mr-2">LEDGER:</span>
+                    <select name="switch_portfolio" onchange="this.form.submit()" class="bg-black text-electric-blue font-mono text-sm py-1 outline-none font-bold cursor-pointer">
+                        <option value="Personal" <?= $active_portfolio === 'Personal' ? 'selected' : '' ?>>PERSONAL EQUITY</option>
+                        <option value="Master_Joint" <?= $active_portfolio === 'Master_Joint' ? 'selected' : '' ?>>MANAGED FUNDS (PAMM)</option>
+                    </select>
+                </form>
             </div>
+            
             <div class="flex space-x-6 text-sm">
                 <div>
                     <span class="text-gray-500 font-mono">USC/IDR:</span> 
@@ -102,7 +128,9 @@ $usd_rate = $journal->getUsdRate();
         </header>
 
         <div class="p-6">
-            <h1 class="text-xl font-bold mb-6 font-mono text-gray-400 border-b border-gray-800 pb-2">PORTFOLIO_OVERVIEW</h1>
+            <div class="flex justify-between items-end border-b border-gray-800 pb-2 mb-6">
+                <h1 class="text-xl font-bold font-mono text-gray-400">PORTFOLIO_OVERVIEW <span class="text-sm text-electric-blue ml-2">[<?= $portfolio_label ?>]</span></h1>
+            </div>
             
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div class="bg-terminal-panel p-5 rounded border border-gray-800 shadow-lg">
@@ -144,7 +172,7 @@ $usd_rate = $journal->getUsdRate();
     </main>
 
     <script>
-        // Logika UI & Jam
+        // Logika UI Sidebar & Jam
         const sidebar = document.getElementById('sidebar');
         const toggleBtn = document.getElementById('toggle-sidebar');
         const navTexts = document.querySelectorAll('.nav-text');
@@ -184,7 +212,6 @@ $usd_rate = $journal->getUsdRate();
         // ENGINE GRAFIK ANALITIK (CHART.JS)
         // ==========================================
         document.addEventListener("DOMContentLoaded", function() {
-            // Tarik data JSON dari Endpoint PHP
             fetch('api/chart_data.php')
                 .then(response => response.json())
                 .then(data => {
@@ -193,13 +220,11 @@ $usd_rate = $journal->getUsdRate();
                         return;
                     }
 
-                    // Setup Tema Global Chart.js (Institutional Dark)
                     Chart.defaults.color = '#888';
                     Chart.defaults.font.family = "'JetBrains Mono', monospace";
                     Chart.defaults.scale.grid.color = '#222';
                     Chart.defaults.scale.grid.borderColor = '#444';
 
-                    // 1. Render Cumulative Equity Curve (Line Chart)
                     const ctxEquity = document.getElementById('equityChart').getContext('2d');
                     new Chart(ctxEquity, {
                         type: 'line',
@@ -208,24 +233,23 @@ $usd_rate = $journal->getUsdRate();
                             datasets: [{
                                 label: 'Cumulative Cent',
                                 data: data.cumulative,
-                                borderColor: '#00E5FF', // Electric Blue
+                                borderColor: '#00E5FF',
                                 backgroundColor: 'rgba(0, 229, 255, 0.1)',
                                 borderWidth: 2,
                                 pointRadius: 1,
                                 pointHoverRadius: 5,
                                 fill: true,
-                                tension: 0.3 // Membuat kurva agak halus
+                                tension: 0.3
                             }]
                         },
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
                             plugins: { legend: { display: false } },
-                            layout: { padding: { top: 30 } } // Ruang untuk judul absolut
+                            layout: { padding: { top: 30 } }
                         }
                     });
 
-                    // 2. Render PNL vs Drawdown (Bar Chart)
                     const ctxPnlDd = document.getElementById('pnlDdChart').getContext('2d');
                     new Chart(ctxPnlDd, {
                         type: 'bar',
@@ -235,13 +259,13 @@ $usd_rate = $journal->getUsdRate();
                                 {
                                     label: 'Daily Profit',
                                     data: data.pnl,
-                                    backgroundColor: '#00FF00', // Neon Green
+                                    backgroundColor: '#00FF00',
                                     borderRadius: 2
                                 },
                                 {
                                     label: 'Max Drawdown',
                                     data: data.dd,
-                                    backgroundColor: '#FF3333', // Bright Red
+                                    backgroundColor: '#FF3333',
                                     borderRadius: 2
                                 }
                             ]
@@ -249,12 +273,10 @@ $usd_rate = $journal->getUsdRate();
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
-                            plugins: { 
-                                legend: { position: 'bottom', labels: { boxWidth: 12 } }
-                            },
+                            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
                             layout: { padding: { top: 30 } },
                             scales: {
-                                x: { stacked: false }, // Ubah ke true jika ingin batangnya ditumpuk
+                                x: { stacked: false },
                                 y: { beginAtZero: true }
                             }
                         }
