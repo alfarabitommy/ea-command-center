@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/db.php';
 
-// Menyeragamkan zona waktu secara absolut untuk mencegah distorsi 48 Jam
 date_default_timezone_set('Asia/Jakarta');
 
 class JournalManager {
@@ -95,10 +94,6 @@ class JournalManager {
         return $report;
     }
 
-    // ========================================================
-    // MODUL CRM (PHASE 8 LOGIC) - DIPERBARUI
-    // ========================================================
-    
     public function getAffiliates() {
         $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY marketer_name ASC");
         $stmt->execute();
@@ -107,8 +102,6 @@ class JournalManager {
 
     public function addClient($name, $tier_type, $referred_by = null) {
         $ref_val = empty($referred_by) ? null : $referred_by;
-        
-        // Mencegah MySQL Timezone Desync dengan mengirimkan timestamp absolut dari PHP
         $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
         
         $stmt = $this->conn->prepare("
@@ -123,7 +116,6 @@ class JournalManager {
     }
 
     public function getClients() {
-        // Eksekusi Auto-Update menggunakan waktu absolut PHP
         $now = date('Y-m-d H:i:s');
         $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Trial' AND trial_end_date < '$now'");
         $this->conn->query("UPDATE clients SET status = 'Expired' WHERE status = 'Active' AND subscription_end_date < '$now'");
@@ -132,12 +124,95 @@ class JournalManager {
             SELECT c.*, a.marketer_name 
             FROM clients c 
             LEFT JOIN affiliates a ON c.referred_by = a.affiliate_id 
-            ORDER BY 
-                FIELD(c.status, 'Expired', 'Trial', 'Active'), 
-                c.created_at DESC
+            ORDER BY FIELD(c.status, 'Expired', 'Trial', 'Active'), c.created_at DESC
         ");
         $stmt->execute();
         return $stmt->fetchAll();
+    }
+
+    // ========================================================
+    // MODUL FASE 9: CRM BILLING & PAMM DISTRIBUTION
+    // ========================================================
+
+    // Fungsi untuk memproses tagihan dan otomatis mencatat komisi afiliasi
+    public function processClientBilling($client_id) {
+        $stmt = $this->conn->prepare("SELECT * FROM clients WHERE client_id = :id");
+        $stmt->bindParam(':id', $client_id);
+        $stmt->execute();
+        $client = $stmt->fetch();
+
+        if (!$client) return false;
+
+        $now = date('Y-m-d H:i:s');
+        $new_end_date = date('Y-m-d H:i:s', strtotime('+30 days'));
+
+        try {
+            $this->conn->beginTransaction();
+
+            // 1. Update Klien menjadi Active + 30 Hari
+            $update_stmt = $this->conn->prepare("UPDATE clients SET status = 'Active', subscription_end_date = :end_date WHERE client_id = :id");
+            $update_stmt->bindParam(':end_date', $new_end_date);
+            $update_stmt->bindParam(':id', $client_id);
+            $update_stmt->execute();
+
+            // 2. Cetak Invoice
+            $amount = ($client['tier_type'] === 'Tier_A') ? 400000 : 200000;
+            $invoice_type = ($client['tier_type'] === 'Tier_A') ? 'Tier_A_400k' : 'Tier_B_200k';
+            
+            $inv_stmt = $this->conn->prepare("INSERT INTO billing_invoices (client_id, amount, payment_date, invoice_type) VALUES (:id, :amount, :date, :type)");
+            $inv_stmt->bindParam(':id', $client_id);
+            $inv_stmt->bindParam(':amount', $amount);
+            $inv_stmt->bindParam(':date', $now);
+            $inv_stmt->bindParam(':type', $invoice_type);
+            $inv_stmt->execute();
+
+            // 3. Distribusi Komisi: Jika Tier A dan ada referal, marketer dapat 100k
+            if ($client['tier_type'] === 'Tier_A' && !empty($client['referred_by'])) {
+                $aff_stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = total_unpaid_commission + 100000 WHERE affiliate_id = :aff_id");
+                $aff_stmt->bindParam(':aff_id', $client['referred_by']);
+                $aff_stmt->execute();
+            }
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
+    }
+
+    // Fungsi untuk menghitung rasio modal klien Tier B di akun Master_Joint
+    public function getClientFundsDistribution($master_account_id) {
+        $stmt = $this->conn->prepare("
+            SELECT cf.*, c.client_name 
+            FROM client_funds cf
+            JOIN clients c ON cf.client_id = c.client_id
+            WHERE cf.associated_master_account_id = :master_id AND c.status = 'Active'
+        ");
+        $stmt->bindParam(':master_id', $master_account_id);
+        $stmt->execute();
+        $funds = $stmt->fetchAll();
+
+        $total_pool = 0;
+        foreach ($funds as $f) {
+            $total_pool += (float)$f['capital_amount_idr'];
+        }
+
+        $distribution = [];
+        foreach ($funds as $f) {
+            $capital = (float)$f['capital_amount_idr'];
+            $percentage = ($total_pool > 0) ? ($capital / $total_pool) * 100 : 0;
+            $distribution[] = [
+                'client_name' => $f['client_name'],
+                'capital' => $capital,
+                'percentage' => round($percentage, 2)
+            ];
+        }
+
+        return [
+            'total_pool' => $total_pool,
+            'clients' => $distribution
+        ];
     }
 }
 ?>

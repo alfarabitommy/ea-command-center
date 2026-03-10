@@ -16,8 +16,8 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
 $journal = new JournalManager();
 $usd_rate = $journal->getUsdRate();
 
-// Proses Penambahan Klien Baru dengan Pola PRG (Post/Redirect/Get)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Proses Add Klien
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_client') {
     $client_name = trim($_POST['client_name']);
     $tier_type = $_POST['tier_type'];
     $referred_by = $_POST['referred_by'];
@@ -27,13 +27,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
     }
-    
-    // Redirect untuk menghancurkan data POST agar tidak ter-submit ulang saat di-refresh
     header("Location: clients");
     exit();
 }
 
-// Mengambil pesan sukses/error dari Session, lalu menghapusnya
+// Proses Billing & Komisi
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'process_billing') {
+    $client_id = $_POST['client_id'];
+    if ($journal->processClientBilling($client_id)) {
+        $_SESSION['flash_msg'] = "<div class='bg-electric-blue text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] BILLING APPROVED. SUBSCRIPTION EXTENDED 30 DAYS.</div>";
+    } else {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] BILLING FAILED.</div>";
+    }
+    header("Location: clients");
+    exit();
+}
+
 $message = $_SESSION['flash_msg'] ?? '';
 unset($_SESSION['flash_msg']);
 
@@ -104,9 +113,13 @@ $clients_data = $journal->getClients();
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                     <span class="nav-text">Annual Report</span>
                 </a>
-                <a href="clients" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden">
+                <a href="clients" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
                     <span class="nav-text">Client CRM</span>
+                </a>
+                <a href="distribution" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span class="nav-text">Profit Dist.</span>
                 </a>
             </div>
 
@@ -153,6 +166,7 @@ $clients_data = $journal->getClients();
             <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg mb-8 shrink-0">
                 <h2 class="text-electric-blue font-mono text-sm font-bold mb-4">[ NEW CLIENT DEPLOYMENT ]</h2>
                 <form method="POST" action="" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <input type="hidden" name="action" value="add_client">
                     <div>
                         <label class="block text-gray-500 text-xs font-mono mb-2">NAMA KLIEN</label>
                         <input type="text" name="client_name" required autocomplete="off" class="input-dark w-full px-3 py-2 rounded">
@@ -199,7 +213,6 @@ $clients_data = $journal->getClients();
                             <tr><td colspan="7" class="p-4 text-center text-gray-600">-- NO ACTIVE CLIENTS DETECTED --</td></tr>
                         <?php else: ?>
                             <?php foreach($clients_data as $client): 
-                                // Modifikasi Pengambilan Waktu untuk Javascript Timer
                                 $now_ts = time();
                                 $target_date = ($client['status'] == 'Trial') ? $client['trial_end_date'] : $client['subscription_end_date'];
                                 $target_ts = strtotime($target_date);
@@ -236,10 +249,14 @@ $clients_data = $journal->getClients();
                                 </td>
                                 <td class="p-4 text-gray-500"><?= $client['marketer_name'] ?? '-' ?></td>
                                 <td class="p-4 text-right">
-                                    <?php if ($client['status'] == 'Expired'): ?>
-                                        <button class="text-xs bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:bg-electric-blue px-3 py-1 rounded transition-colors">
-                                            PROCESS BILLING
-                                        </button>
+                                    <?php if ($client['status'] == 'Expired' || $client['status'] == 'Trial'): ?>
+                                        <form method="POST" action="" class="inline-block">
+                                            <input type="hidden" name="action" value="process_billing">
+                                            <input type="hidden" name="client_id" value="<?= $client['client_id'] ?>">
+                                            <button type="submit" onclick="return confirm('Proses penagihan untuk klien ini? Fitur otomatisasi komisi (Tier A) akan berjalan.')" class="text-xs bg-transparent border border-gray-600 text-gray-400 hover:text-white hover:bg-electric-blue hover:border-electric-blue px-3 py-1 rounded transition-colors">
+                                                PROCESS BILLING
+                                            </button>
+                                        </form>
                                     <?php else: ?>
                                         <span class="text-xs text-gray-600">NO ACTION REQ.</span>
                                     <?php endif; ?>
@@ -298,38 +315,31 @@ $clients_data = $journal->getClients();
             if(clockEl) clockEl.innerText = new Date().toLocaleTimeString('en-GB');
         }, 1000);
 
-        // ========================================================
-        // ENGINE LIVE COUNTDOWN TIMER V2.0
-        // ========================================================
         setInterval(() => {
             document.querySelectorAll('.countdown-timer').forEach(el => {
                 let seconds = parseInt(el.getAttribute('data-remaining-seconds'));
                 let status = el.getAttribute('data-status');
                 
-                // Jika waktu habis
                 if (seconds <= 0) {
                     el.innerText = "TIME IS UP";
                     el.className = "text-neon-red animate-pulse font-bold";
-                    return; // Hentikan kalkulasi untuk elemen ini
+                    return; 
                 }
                 
-                // Kurangi 1 detik
                 seconds--;
                 el.setAttribute('data-remaining-seconds', seconds);
                 
-                // Format Tampilan
                 if (status === 'Trial') {
                     let h = Math.floor(seconds / 3600);
                     let m = Math.floor((seconds % 3600) / 60);
                     let s = seconds % 60;
-                    // Padding nol agar terlihat rapi seperti jam digital
                     el.innerText = `${h.toString().padStart(2, '0')}H ${m.toString().padStart(2, '0')}M ${s.toString().padStart(2, '0')}S`;
                 } else {
                     let d = Math.floor(seconds / 86400);
                     el.innerText = `${d} DAYS`;
                 }
             });
-        }, 1000); // Trigger setiap 1.000 milidetik (1 detik)
+        }, 1000);
     </script>
 </body>
 </html>
