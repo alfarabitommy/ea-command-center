@@ -117,19 +117,45 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    public function addClient($name, $tier_type, $referred_by = null) {
-        $ref_val = empty($referred_by) ? null : $referred_by;
-        $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
-        
-        $stmt = $this->conn->prepare("
-            INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
-            VALUES (:name, :tier, 'Trial', :trial_end, :ref)
-        ");
-        $stmt->bindParam(':name', $name);
-        $stmt->bindParam(':tier', $tier_type);
-        $stmt->bindParam(':trial_end', $trial_end);
-        $stmt->bindParam(':ref', $ref_val);
-        return $stmt->execute();
+    // DIPERBARUI: Sekarang bisa menerima input Modal Klien untuk Tier B
+    public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
+        try {
+            $this->conn->beginTransaction();
+
+            $ref_val = empty($referred_by) ? null : $referred_by;
+            $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
+            
+            // 1. Simpan Data Klien Induk
+            $stmt = $this->conn->prepare("
+                INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
+                VALUES (:name, :tier, 'Trial', :trial_end, :ref)
+            ");
+            $stmt->bindParam(':name', $name);
+            $stmt->bindParam(':tier', $tier_type);
+            $stmt->bindParam(':trial_end', $trial_end);
+            $stmt->bindParam(':ref', $ref_val);
+            $stmt->execute();
+
+            $client_id = $this->conn->lastInsertId();
+
+            // 2. Jika ini klien Tier B (Joint Account), catat modalnya ke Buku Besar client_funds
+            if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
+                $stmtFund = $this->conn->prepare("
+                    INSERT INTO client_funds (client_id, capital_amount_idr, associated_master_account_id) 
+                    VALUES (:cid, :cap, :acc_id)
+                ");
+                $stmtFund->bindParam(':cid', $client_id);
+                $stmtFund->bindParam(':cap', $capital_amount);
+                $stmtFund->bindParam(':acc_id', $master_account_id);
+                $stmtFund->execute();
+            }
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function getClients() {
@@ -190,11 +216,7 @@ class JournalManager {
         }
     }
 
-    // ========================================================
-    // ENGINE PAMM 1-ON-1 DYNAMIC RATIO (Pembaruan Fase 9)
-    // ========================================================
     public function get1on1Distribution($master_account_id) {
-        // 1. Dapatkan Modal Awal Akun (Cent)
         $stmtAcc = $this->conn->prepare("SELECT account_name, initial_balance_cent FROM accounts WHERE account_id = :id");
         $stmtAcc->bindParam(':id', $master_account_id);
         $stmtAcc->execute();
@@ -202,12 +224,10 @@ class JournalManager {
 
         if (!$account) return null;
 
-        // 2. Konversi Cent ke USD, lalu ke IDR untuk perhitungan rasio
         $usd_rate = $this->getUsdRate();
         $total_account_usd = $account['initial_balance_cent'] / 100;
         $total_account_idr = $total_account_usd * $usd_rate;
 
-        // 3. Dapatkan Modal Klien 1-on-1 (Asumsi hanya ada 1 klien aktif per akun Master)
         $stmtFund = $this->conn->prepare("
             SELECT cf.capital_amount_idr, c.client_name 
             FROM client_funds cf
@@ -219,9 +239,7 @@ class JournalManager {
         $stmtFund->execute();
         $fund = $stmtFund->fetch();
 
-        // 4. Kalkulasi Rasio Dinamis
         if (!$fund) {
-            // Jika tidak ada klien, 100% laba adalah milik Tommy
             return [
                 'account_name' => $account['account_name'],
                 'total_capital_idr' => $total_account_idr,
@@ -237,7 +255,6 @@ class JournalManager {
         $client_idr = (float)$fund['capital_amount_idr'];
         $tommy_idr = $total_account_idr - $client_idr;
 
-        // Proteksi Matematika (Mencegah pembagian nol)
         if ($total_account_idr <= 0) {
             $client_ratio = 50;
             $tommy_ratio = 50;

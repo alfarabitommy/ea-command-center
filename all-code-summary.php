@@ -234,19 +234,45 @@ class JournalManager {
         return $stmt->fetchAll();
     }
 
-    public function addClient($name, $tier_type, $referred_by = null) {
-        $ref_val = empty($referred_by) ? null : $referred_by;
-        $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
-        
-        $stmt = $this->conn->prepare("
-            INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
-            VALUES (:name, :tier, 'Trial', :trial_end, :ref)
-        ");
-        $stmt->bindParam(':name', $name);
-        $stmt->bindParam(':tier', $tier_type);
-        $stmt->bindParam(':trial_end', $trial_end);
-        $stmt->bindParam(':ref', $ref_val);
-        return $stmt->execute();
+    // DIPERBARUI: Sekarang bisa menerima input Modal Klien untuk Tier B
+    public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
+        try {
+            $this->conn->beginTransaction();
+
+            $ref_val = empty($referred_by) ? null : $referred_by;
+            $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
+            
+            // 1. Simpan Data Klien Induk
+            $stmt = $this->conn->prepare("
+                INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
+                VALUES (:name, :tier, 'Trial', :trial_end, :ref)
+            ");
+            $stmt->bindParam(':name', $name);
+            $stmt->bindParam(':tier', $tier_type);
+            $stmt->bindParam(':trial_end', $trial_end);
+            $stmt->bindParam(':ref', $ref_val);
+            $stmt->execute();
+
+            $client_id = $this->conn->lastInsertId();
+
+            // 2. Jika ini klien Tier B (Joint Account), catat modalnya ke Buku Besar client_funds
+            if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
+                $stmtFund = $this->conn->prepare("
+                    INSERT INTO client_funds (client_id, capital_amount_idr, associated_master_account_id) 
+                    VALUES (:cid, :cap, :acc_id)
+                ");
+                $stmtFund->bindParam(':cid', $client_id);
+                $stmtFund->bindParam(':cap', $capital_amount);
+                $stmtFund->bindParam(':acc_id', $master_account_id);
+                $stmtFund->execute();
+            }
+
+            $this->conn->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return false;
+        }
     }
 
     public function getClients() {
@@ -307,11 +333,7 @@ class JournalManager {
         }
     }
 
-    // ========================================================
-    // ENGINE PAMM 1-ON-1 DYNAMIC RATIO (Pembaruan Fase 9)
-    // ========================================================
     public function get1on1Distribution($master_account_id) {
-        // 1. Dapatkan Modal Awal Akun (Cent)
         $stmtAcc = $this->conn->prepare("SELECT account_name, initial_balance_cent FROM accounts WHERE account_id = :id");
         $stmtAcc->bindParam(':id', $master_account_id);
         $stmtAcc->execute();
@@ -319,12 +341,10 @@ class JournalManager {
 
         if (!$account) return null;
 
-        // 2. Konversi Cent ke USD, lalu ke IDR untuk perhitungan rasio
         $usd_rate = $this->getUsdRate();
         $total_account_usd = $account['initial_balance_cent'] / 100;
         $total_account_idr = $total_account_usd * $usd_rate;
 
-        // 3. Dapatkan Modal Klien 1-on-1 (Asumsi hanya ada 1 klien aktif per akun Master)
         $stmtFund = $this->conn->prepare("
             SELECT cf.capital_amount_idr, c.client_name 
             FROM client_funds cf
@@ -336,9 +356,7 @@ class JournalManager {
         $stmtFund->execute();
         $fund = $stmtFund->fetch();
 
-        // 4. Kalkulasi Rasio Dinamis
         if (!$fund) {
-            // Jika tidak ada klien, 100% laba adalah milik Tommy
             return [
                 'account_name' => $account['account_name'],
                 'total_capital_idr' => $total_account_idr,
@@ -354,7 +372,6 @@ class JournalManager {
         $client_idr = (float)$fund['capital_amount_idr'];
         $tommy_idr = $total_account_idr - $client_idr;
 
-        // Proteksi Matematika (Mencegah pembagian nol)
         if ($total_account_idr <= 0) {
             $client_ratio = 50;
             $tommy_ratio = 50;
@@ -771,13 +788,17 @@ $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MAN
 $journal = new JournalManager();
 $usd_rate = $journal->getUsdRate();
 
-// Proses Add Klien
+// Proses Add Klien (Kini mendukung input modal secara langsung)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_client') {
     $client_name = trim($_POST['client_name']);
     $tier_type = $_POST['tier_type'];
     $referred_by = $_POST['referred_by'];
+    
+    // Variabel khusus Tier B
+    $master_account_id = $_POST['master_account_id'] ?? null;
+    $capital_amount = isset($_POST['capital_amount']) ? (float)$_POST['capital_amount'] : 0;
 
-    if ($journal->addClient($client_name, $tier_type, $referred_by)) {
+    if ($journal->addClient($client_name, $tier_type, $referred_by, $master_account_id, $capital_amount)) {
         $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
     } else {
         $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN KLIEN.</div>";
@@ -803,6 +824,7 @@ unset($_SESSION['flash_msg']);
 
 $affiliates = $journal->getAffiliates();
 $clients_data = $journal->getClients();
+$master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdown
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -854,7 +876,7 @@ $clients_data = $journal->getClients();
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
             </button>
         </div>
-        <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between">
+        <nav class="flex-1 p-4 space-y-2 mt-2 flex flex-col justify-between overflow-y-auto">
             <div>
                 <a href="index" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
@@ -868,6 +890,10 @@ $clients_data = $journal->getClients();
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                     <span class="nav-text">Annual Report</span>
                 </a>
+                <a href="accounts" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
+                    <span class="nav-text">Accounts</span>
+                </a>
                 <a href="clients" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden mb-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
                     <span class="nav-text">Client CRM</span>
@@ -875,10 +901,6 @@ $clients_data = $journal->getClients();
                 <a href="distribution" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     <span class="nav-text">Profit Dist.</span>
-                </a>
-                <a href="accounts" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>
-                    <span class="nav-text">Accounts</span>
                 </a>
             </div>
 
@@ -890,7 +912,6 @@ $clients_data = $journal->getClients();
     </aside>
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
-        
         <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
                 <form method="GET" action="" class="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
@@ -932,7 +953,7 @@ $clients_data = $journal->getClients();
                     </div>
                     <div>
                         <label class="block text-gray-500 text-xs font-mono mb-2">TIER PAKET (30 HARI)</label>
-                        <select name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
+                        <select id="tier_selector" name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
                             <option value="Tier_A">Tier A (EA VPS - 400k)</option>
                             <option value="Tier_B">Tier B (Joint Slot - 200k)</option>
                         </select>
@@ -950,6 +971,22 @@ $clients_data = $journal->getClients();
                         <button type="submit" class="w-full bg-gray-800 hover:bg-neon-green hover:text-black text-neon-green font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-neon-green">
                             EXECUTE >
                         </button>
+                    </div>
+
+                    <div id="tier_b_panel" class="hidden col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 border border-electric-blue rounded bg-gray-900">
+                        <div>
+                            <label class="block text-electric-blue text-xs font-mono mb-2">LINK TO MASTER ACCOUNT (KHUSUS TIER B)</label>
+                            <select name="master_account_id" class="input-dark w-full px-3 py-2 rounded border-electric-blue">
+                                <option value="">-- Pilih Akun Master Tempat Modal Digabung --</option>
+                                <?php foreach($master_accounts as $acc): ?>
+                                    <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-electric-blue text-xs font-mono mb-2">CLIENT CAPITAL DEPOSIT (IDR)</label>
+                            <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 5000000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
+                        </div>
                     </div>
                 </form>
             </div>
@@ -1099,6 +1136,21 @@ $clients_data = $journal->getClients();
                 }
             });
         }, 1000);
+
+        // LOGIKA TOGGLE PANEL TIER B
+        const tierSelector = document.getElementById('tier_selector');
+        const tierBPanel = document.getElementById('tier_b_panel');
+
+        tierSelector.addEventListener('change', function() {
+            if (this.value === 'Tier_B') {
+                tierBPanel.classList.remove('hidden');
+            } else {
+                tierBPanel.classList.add('hidden');
+                // Reset nilai input jika dikembalikan ke Tier A
+                tierBPanel.querySelector('select').value = '';
+                tierBPanel.querySelector('input').value = '';
+            }
+        });
     </script>
 </body>
 </html>
