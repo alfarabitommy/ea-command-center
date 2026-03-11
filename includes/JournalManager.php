@@ -111,13 +111,32 @@ class JournalManager {
         return $report;
     }
 
+    // ========================================================
+    // MODUL AFILIASI & MARKETING (BARU)
+    // ========================================================
+
     public function getAffiliates() {
-        $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY marketer_name ASC");
+        $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY total_unpaid_commission DESC, marketer_name ASC");
         $stmt->execute();
         return $stmt->fetchAll();
     }
 
-    // DIPERBARUI: Sekarang bisa menerima input Modal Klien untuk Tier B
+    public function addAffiliate($marketer_name) {
+        $stmt = $this->conn->prepare("INSERT INTO affiliates (marketer_name, total_unpaid_commission) VALUES (:name, 0.00)");
+        $stmt->bindParam(':name', $marketer_name);
+        return $stmt->execute();
+    }
+
+    public function payoutAffiliate($affiliate_id) {
+        $stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = 0.00 WHERE affiliate_id = :id");
+        $stmt->bindParam(':id', $affiliate_id);
+        return $stmt->execute();
+    }
+
+    // ========================================================
+    // MODUL CRM & PAMM 
+    // ========================================================
+
     public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
         try {
             $this->conn->beginTransaction();
@@ -125,7 +144,6 @@ class JournalManager {
             $ref_val = empty($referred_by) ? null : $referred_by;
             $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
             
-            // 1. Simpan Data Klien Induk
             $stmt = $this->conn->prepare("
                 INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
                 VALUES (:name, :tier, 'Trial', :trial_end, :ref)
@@ -138,7 +156,6 @@ class JournalManager {
 
             $client_id = $this->conn->lastInsertId();
 
-            // 2. Jika ini klien Tier B (Joint Account), catat modalnya ke Buku Besar client_funds
             if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
                 $stmtFund = $this->conn->prepare("
                     INSERT INTO client_funds (client_id, capital_amount_idr, associated_master_account_id) 
@@ -202,6 +219,7 @@ class JournalManager {
             $inv_stmt->bindParam(':type', $invoice_type);
             $inv_stmt->execute();
 
+            // Trigger Komisi 100k khusus Tier A
             if ($client['tier_type'] === 'Tier_A' && !empty($client['referred_by'])) {
                 $aff_stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = total_unpaid_commission + 100000 WHERE affiliate_id = :aff_id");
                 $aff_stmt->bindParam(':aff_id', $client['referred_by']);

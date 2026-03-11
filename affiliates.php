@@ -2,47 +2,46 @@
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/JournalManager.php';
 
-$_SESSION['active_portfolio'] = 'Master_Joint'; 
-
 $journal = new JournalManager();
 $usd_rate = $journal->getUsdRate();
 
-$master_accounts = $journal->getActiveAccounts('Master_Joint');
-$distribution_result = null;
-$wd_amount = 0;
+// Proses Add Marketer
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_affiliate') {
+    $marketer_name = trim($_POST['marketer_name']);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $master_account_id = $_POST['master_account_id'];
-    $wd_amount = (float)$_POST['wd_amount'];
-    
-    // Panggil Engine 1-on-1 Dynamic Ratio
-    $data = $journal->get1on1Distribution($master_account_id);
-    
-    if ($data) {
-        $tommy_share = $wd_amount * ($data['tommy_ratio'] / 100);
-        $client_share = $wd_amount * ($data['client_ratio'] / 100);
-
-        $distribution_result = [
-            'account_name' => $data['account_name'],
-            'total_capital' => $data['total_capital_idr'],
-            'tommy_capital' => $data['tommy_capital_idr'],
-            'tommy_ratio' => $data['tommy_ratio'],
-            'tommy_share' => $tommy_share,
-            'client_name' => $data['client_name'],
-            'client_capital' => $data['client_capital_idr'],
-            'client_ratio' => $data['client_ratio'],
-            'client_share' => $client_share,
-            'has_client' => $data['has_client']
-        ];
+    if ($journal->addAffiliate($marketer_name)) {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] MARKETER BARU BERHASIL DIDAFTARKAN.</div>";
+    } else {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN MARKETER.</div>";
     }
+    header("Location: affiliates");
+    exit();
 }
+
+// Proses Payout Komisi
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'payout') {
+    $affiliate_id = $_POST['affiliate_id'];
+    
+    if ($journal->payoutAffiliate($affiliate_id)) {
+        $_SESSION['flash_msg'] = "<div class='bg-electric-blue text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KOMISI DIBAYARKAN. LEDGER DIRESET KE NOL.</div>";
+    } else {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MEMPROSES PAYOUT.</div>";
+    }
+    header("Location: affiliates");
+    exit();
+}
+
+$message = $_SESSION['flash_msg'] ?? '';
+unset($_SESSION['flash_msg']);
+
+$affiliates = $journal->getAffiliates();
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EA Command Center - Profit Distribution</title>
+    <title>EA Command Center - Marketing Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <script>
@@ -71,6 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .input-dark { background-color: #000; border: 1px solid #333; color: #00FF00; font-family: 'JetBrains Mono', monospace; outline: none; transition: border 0.2s;}
         .input-dark:focus { border-color: #00E5FF; }
         .sidebar-transition { transition: width 0.3s ease-in-out; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden">
@@ -104,12 +107,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
                     <span class="nav-text">Client CRM</span>
                 </a>
-                <a href="distribution" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <a href="distribution" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     <span class="nav-text">Profit Dist.</span>
                 </a>
-                <a href="affiliates" class="group block py-2 px-3 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors flex items-center whitespace-nowrap overflow-hidden mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 group-hover:text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666M19.242 21.25a11.966 11.966 0 01-8.242 2.25 11.966 11.966 0 01-8.242-2.25m16.484 0a12.01 12.01 0 00-3.32-3.32m-3.32 3.32A11.966 11.966 0 0111 23.5c-2.87 0-5.54-.954-7.72-2.58m16.484 0A12.01 12.01 0 0019 18m-8.5-4a4.5 4.5 0 100-9 4.5 4.5 0 000 9z" /></svg>
+                <a href="affiliates" class="group block py-2 px-3 bg-gray-800 rounded text-neon-green border-l-2 border-neon-green flex items-center whitespace-nowrap overflow-hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-3 shrink-0 text-neon-green transition-colors"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666M19.242 21.25a11.966 11.966 0 01-8.242 2.25 11.966 11.966 0 01-8.242-2.25m16.484 0a12.01 12.01 0 00-3.32-3.32m-3.32 3.32A11.966 11.966 0 0111 23.5c-2.87 0-5.54-.954-7.72-2.58m16.484 0A12.01 12.01 0 0019 18m-8.5-4a4.5 4.5 0 100-9 4.5 4.5 0 000 9z" /></svg>
                     <span class="nav-text">Affiliates</span>
                 </a>
             </div>
@@ -124,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
         <header class="h-16 bg-terminal-panel border-b border-gray-800 flex items-center justify-between px-6 shrink-0 sticky top-0 z-20">
             <div class="flex items-center space-x-6">
-                <span class="bg-black border border-gray-700 text-electric-blue font-mono text-sm px-3 py-1 font-bold rounded">LEDGER: MANAGED FUNDS (PAMM) LOCKED</span>
+                <span class="text-electric-blue font-mono text-sm font-bold">DATABASE: MARKETING LEDGER</span>
             </div>
             <div class="flex space-x-6 text-sm">
                 <div class="hidden md:block">
@@ -139,91 +142,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </header>
 
         <div class="p-6 flex-1 flex flex-col">
-            <h1 class="text-xl font-bold font-mono text-gray-400 border-b border-gray-800 pb-2 mb-6">DYNAMIC_PAMM_DISTRIBUTION_LEDGER (1-ON-1)</h1>
+            <h1 class="text-xl font-bold font-mono text-gray-400 border-b border-gray-800 pb-2 mb-6">AFFILIATE_MARKETING_MODULE</h1>
             
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-1">
-                    <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg">
-                        <h2 class="text-electric-blue font-mono text-sm font-bold mb-6">[ WD CALCULATION EXECUTION ]</h2>
-                        <form method="POST" action="">
-                            <div class="mb-4">
-                                <label class="block text-gray-500 text-xs font-mono mb-2">PILIH MASTER ACCOUNT (1-ON-1)</label>
-                                <select name="master_account_id" required class="input-dark w-full px-3 py-2 rounded">
-                                    <?php foreach($master_accounts as $acc): ?>
-                                        <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="mb-6">
-                                <label class="block text-gray-500 text-xs font-mono mb-2">TOTAL WD PROFIT (IDR)</label>
-                                <input type="number" step="0.01" name="wd_amount" required placeholder="Contoh: 2000000" value="<?= $wd_amount > 0 ? $wd_amount : '' ?>" class="input-dark w-full px-3 py-2 rounded font-bold text-neon-green">
-                            </div>
-                            <button type="submit" class="w-full bg-gray-800 hover:bg-neon-green hover:text-black text-neon-green font-mono font-bold py-3 px-4 rounded transition-colors border border-gray-700 hover:border-neon-green">
-                                CALCULATE DYNAMIC RATIO
-                            </button>
-                        </form>
-                    </div>
-                </div>
+            <?= $message ?>
 
-                <div class="lg:col-span-2">
-                    <?php if($distribution_result): ?>
-                        <div class="bg-terminal-panel p-6 rounded border border-electric-blue shadow-lg relative">
-                            <div class="absolute top-0 right-0 bg-electric-blue text-black font-mono text-xs font-bold px-3 py-1 rounded-bl">CALCULATION: SECURED</div>
-                            
-                            <h2 class="text-gray-400 font-mono text-lg font-bold mb-4 mt-2 border-b border-gray-800 pb-2">1-ON-1 DISTRIBUTION LEDGER</h2>
-                            
-                            <div class="grid grid-cols-2 gap-4 mb-6">
-                                <div class="bg-gray-900 border border-gray-700 p-4 rounded">
-                                    <div class="text-gray-500 font-mono text-xs mb-1">TOTAL ACCOUNT CAPITAL</div>
-                                    <div class="text-lg font-bold font-mono text-white">Rp <?= number_format($distribution_result['total_capital'], 0, ',', '.') ?></div>
-                                </div>
-                                <div class="bg-gray-900 border border-gray-700 p-4 rounded">
-                                    <div class="text-gray-500 font-mono text-xs mb-1">WD PROFIT TO SPLIT</div>
-                                    <div class="text-lg font-bold font-mono text-neon-green">Rp <?= number_format($wd_amount, 0, ',', '.') ?></div>
-                                </div>
-                            </div>
-
-                            <div class="bg-black rounded border border-gray-800 overflow-x-auto">
-                                <table class="w-full text-left">
-                                    <thead>
-                                        <tr class="border-b border-gray-800 text-gray-500 font-mono text-xs">
-                                            <th class="p-4 uppercase">Entity</th>
-                                            <th class="p-4 text-right uppercase">Fund Capital</th>
-                                            <th class="p-4 text-right uppercase">Dynamic Ratio</th>
-                                            <th class="p-4 text-right text-white uppercase">Profit Share (WD)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="font-mono text-sm">
-                                        <tr class="border-b border-gray-800 transition-colors bg-gray-900">
-                                            <td class="p-4 text-neon-green font-bold">TOMMY ALFARABI (MASTER)</td>
-                                            <td class="p-4 text-right text-gray-400">Rp <?= number_format($distribution_result['tommy_capital'], 0, ',', '.') ?></td>
-                                            <td class="p-4 text-right text-neon-green font-bold"><?= $distribution_result['tommy_ratio'] ?>%</td>
-                                            <td class="p-4 text-right text-neon-green font-bold text-lg">Rp <?= number_format($distribution_result['tommy_share'], 0, ',', '.') ?></td>
-                                        </tr>
-                                        
-                                        <tr class="transition-colors hover:bg-gray-800">
-                                            <td class="p-4 text-electric-blue font-bold"><?= htmlspecialchars($distribution_result['client_name']) ?></td>
-                                            <td class="p-4 text-right text-gray-400">Rp <?= number_format($distribution_result['client_capital'], 0, ',', '.') ?></td>
-                                            <td class="p-4 text-right text-electric-blue font-bold"><?= $distribution_result['client_ratio'] ?>%</td>
-                                            <td class="p-4 text-right text-electric-blue font-bold text-lg">Rp <?= number_format($distribution_result['client_share'], 0, ',', '.') ?></td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <?php if(!$distribution_result['has_client']): ?>
-                                <div class="mt-4 text-warning-yellow text-xs font-mono text-center animate-pulse">
-                                    *WARNING: No active client fund detected in this account. 100% profit allocated to Master.
-                                </div>
-                            <?php endif; ?>
-
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 shrink-0">
+                <div class="bg-terminal-panel p-6 rounded border border-gray-800 shadow-lg lg:col-span-1">
+                    <h2 class="text-electric-blue font-mono text-sm font-bold mb-4">[ REGISTER NEW MARKETER ]</h2>
+                    <form method="POST" action="">
+                        <input type="hidden" name="action" value="add_affiliate">
+                        <div class="mb-4">
+                            <label class="block text-gray-500 text-xs font-mono mb-2">NAMA LENGKAP MARKETER</label>
+                            <input type="text" name="marketer_name" required autocomplete="off" placeholder="Misal: Budi Santoso" class="input-dark w-full px-3 py-2 rounded">
                         </div>
-                    <?php else: ?>
-                        <div class="h-full flex items-center justify-center border-2 border-dashed border-gray-800 rounded opacity-50">
-                            <span class="text-gray-600 font-mono">AWAITING WD INPUT...</span>
-                        </div>
-                    <?php endif; ?>
+                        <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue">
+                            EXECUTE >
+                        </button>
+                    </form>
                 </div>
+                
+                <div class="bg-gray-900 border border-gray-800 p-6 rounded lg:col-span-2 flex flex-col justify-center">
+                    <h3 class="text-gray-400 font-mono text-sm font-bold mb-2">SYSTEM PROTOCOL:</h3>
+                    <ul class="text-xs text-gray-500 space-y-2 font-mono">
+                        <li>> Marketer akan muncul di pilihan Dropdown saat Anda mendaftarkan klien baru di menu <span class="text-white">Client CRM</span>.</li>
+                        <li>> Komisi tetap senilai <span class="text-neon-green">Rp 100.000</span> akan otomatis ditambahkan ke saldo Marketer setiap kali klien Tier A (VPS+EA) mereka berubah status menjadi PAID.</li>
+                        <li>> Gunakan tombol <span class="text-electric-blue">PAYOUT</span> HANYA setelah Anda berhasil mentransfer komisi tersebut ke rekening Marketer. Saldo akan hangus (direset ke nol).</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="bg-terminal-panel rounded border border-gray-800 shadow-lg overflow-x-auto shrink-0 mb-6">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-900 border-b border-gray-700 font-mono text-xs text-gray-400">
+                            <th class="p-4 uppercase tracking-wider">ID</th>
+                            <th class="p-4 uppercase tracking-wider">Marketer Name</th>
+                            <th class="p-4 uppercase tracking-wider text-right">Total Unpaid Commission</th>
+                            <th class="p-4 uppercase tracking-wider text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="font-mono text-sm">
+                        <?php if(empty($affiliates)): ?>
+                            <tr><td colspan="4" class="p-4 text-center text-gray-600">-- NO MARKETER DETECTED --</td></tr>
+                        <?php else: ?>
+                            <?php foreach($affiliates as $af): ?>
+                            <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                                <td class="p-4 text-gray-500">#<?= str_pad($af['affiliate_id'], 3, '0', STR_PAD_LEFT) ?></td>
+                                <td class="p-4 text-white font-bold"><?= htmlspecialchars($af['marketer_name']) ?></td>
+                                <td class="p-4 text-right">
+                                    <span class="<?= $af['total_unpaid_commission'] > 0 ? 'text-neon-green font-bold text-lg' : 'text-gray-600' ?>">
+                                        Rp <?= number_format($af['total_unpaid_commission'], 0, ',', '.') ?>
+                                    </span>
+                                </td>
+                                <td class="p-4 text-right">
+                                    <?php if ($af['total_unpaid_commission'] > 0): ?>
+                                        <form method="POST" action="" class="inline-block">
+                                            <input type="hidden" name="action" value="payout">
+                                            <input type="hidden" name="affiliate_id" value="<?= $af['affiliate_id'] ?>">
+                                            <button type="submit" onclick="return confirm('Anda yakin telah men-transfer komisi sebesar Rp <?= number_format($af['total_unpaid_commission'], 0, ',', '.') ?> kepada <?= htmlspecialchars($af['marketer_name']) ?>? Data ini akan direset menjadi Rp 0.')" class="text-xs bg-transparent border border-electric-blue text-electric-blue hover:text-black hover:bg-electric-blue px-3 py-1 rounded transition-colors font-bold">
+                                                PROCESS PAYOUT
+                                            </button>
+                                        </form>
+                                    <?php else: ?>
+                                        <span class="text-xs text-gray-600">CLEARED</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
             </div>
             
             <div class="flex-1"></div>
