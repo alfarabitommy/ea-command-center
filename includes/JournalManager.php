@@ -111,10 +111,6 @@ class JournalManager {
         return $report;
     }
 
-    // ========================================================
-    // MODUL AFILIASI & MARKETING (BARU)
-    // ========================================================
-
     public function getAffiliates() {
         $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY total_unpaid_commission DESC, marketer_name ASC");
         $stmt->execute();
@@ -132,10 +128,6 @@ class JournalManager {
         $stmt->bindParam(':id', $affiliate_id);
         return $stmt->execute();
     }
-
-    // ========================================================
-    // MODUL CRM & PAMM 
-    // ========================================================
 
     public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
         try {
@@ -157,8 +149,9 @@ class JournalManager {
             $client_id = $this->conn->lastInsertId();
 
             if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
+                // Diubah menjadi capital_amount_usc
                 $stmtFund = $this->conn->prepare("
-                    INSERT INTO client_funds (client_id, capital_amount_idr, associated_master_account_id) 
+                    INSERT INTO client_funds (client_id, capital_amount_usc, associated_master_account_id) 
                     VALUES (:cid, :cap, :acc_id)
                 ");
                 $stmtFund->bindParam(':cid', $client_id);
@@ -219,7 +212,6 @@ class JournalManager {
             $inv_stmt->bindParam(':type', $invoice_type);
             $inv_stmt->execute();
 
-            // Trigger Komisi 100k khusus Tier A
             if ($client['tier_type'] === 'Tier_A' && !empty($client['referred_by'])) {
                 $aff_stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = total_unpaid_commission + 100000 WHERE affiliate_id = :aff_id");
                 $aff_stmt->bindParam(':aff_id', $client['referred_by']);
@@ -242,12 +234,11 @@ class JournalManager {
 
         if (!$account) return null;
 
-        $usd_rate = $this->getUsdRate();
-        $total_account_usd = $account['initial_balance_cent'] / 100;
-        $total_account_idr = $total_account_usd * $usd_rate;
+        // Total Akun murni menggunakan satuan Cent (USC) tanpa dikonversi ke IDR
+        $total_account_usc = (float)$account['initial_balance_cent'];
 
         $stmtFund = $this->conn->prepare("
-            SELECT cf.capital_amount_idr, c.client_name 
+            SELECT cf.capital_amount_usc, c.client_name 
             FROM client_funds cf
             JOIN clients c ON cf.client_id = c.client_id
             WHERE cf.associated_master_account_id = :master_id AND c.status = 'Active'
@@ -260,35 +251,36 @@ class JournalManager {
         if (!$fund) {
             return [
                 'account_name' => $account['account_name'],
-                'total_capital_idr' => $total_account_idr,
-                'tommy_capital_idr' => $total_account_idr,
+                'total_capital_usc' => $total_account_usc,
+                'tommy_capital_usc' => $total_account_usc,
                 'tommy_ratio' => 100,
                 'has_client' => false,
                 'client_name' => 'N/A (Personal Equity)',
-                'client_capital_idr' => 0,
+                'client_capital_usc' => 0,
                 'client_ratio' => 0
             ];
         }
 
-        $client_idr = (float)$fund['capital_amount_idr'];
-        $tommy_idr = $total_account_idr - $client_idr;
+        // Kalkulasi proporsi murni menggunakan nilai USC
+        $client_usc = (float)$fund['capital_amount_usc'];
+        $tommy_usc = $total_account_usc - $client_usc;
 
-        if ($total_account_idr <= 0) {
+        if ($total_account_usc <= 0) {
             $client_ratio = 50;
             $tommy_ratio = 50;
         } else {
-            $client_ratio = ($client_idr / $total_account_idr) * 100;
-            $tommy_ratio = ($tommy_idr / $total_account_idr) * 100;
+            $client_ratio = ($client_usc / $total_account_usc) * 100;
+            $tommy_ratio = ($tommy_usc / $total_account_usc) * 100;
         }
 
         return [
             'account_name' => $account['account_name'],
-            'total_capital_idr' => $total_account_idr,
-            'tommy_capital_idr' => $tommy_idr,
+            'total_capital_usc' => $total_account_usc,
+            'tommy_capital_usc' => $tommy_usc,
             'tommy_ratio' => round($tommy_ratio, 2),
             'has_client' => true,
             'client_name' => $fund['client_name'],
-            'client_capital_idr' => $client_idr,
+            'client_capital_usc' => $client_usc,
             'client_ratio' => round($client_ratio, 2)
         ];
     }

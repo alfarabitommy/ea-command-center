@@ -143,10 +143,6 @@ $total_annual_pnl = 0;
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
                     <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
-                <div>
-                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
-                </div>
                 <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SERVER TIME:</span> 
                     <span id="clock" class="number-format text-terminal-text"></span>

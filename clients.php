@@ -165,10 +165,6 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                     <span class="text-gray-500 font-mono">SYS.STATUS:</span> 
                     <span class="text-neon-green animate-pulse font-mono font-bold">ONLINE</span>
                 </div>
-                <div>
-                    <span class="text-gray-500 font-mono">USC/IDR:</span> 
-                    <span class="number-format text-electric-blue font-bold">Rp <?= number_format($usd_rate, 0, ',', '.') ?></span>
-                </div>
                 <div class="hidden md:block">
                     <span class="text-gray-500 font-mono">SERVER TIME:</span> 
                     <span id="clock" class="number-format text-terminal-text"></span>
@@ -222,7 +218,7 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                             </select>
                         </div>
                         <div>
-                            <label class="block text-electric-blue text-xs font-mono mb-2">CLIENT CAPITAL DEPOSIT (IDR)</label>
+                            <label class="block text-electric-blue text-xs font-mono mb-2">CLIENT CAPITAL DEPOSIT (USC)</label>
                             <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 5000000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
                         </div>
                     </div>
