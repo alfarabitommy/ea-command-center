@@ -14,17 +14,16 @@ $active_portfolio = $_SESSION['active_portfolio'];
 $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
 
 $journal = new JournalManager();
-$usd_rate = $journal->getUsdRate();
 
-// Proses Add Klien (Kini mendukung input modal secara langsung)
+// Proses Add Klien 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_client') {
     $client_name = trim($_POST['client_name']);
     $tier_type = $_POST['tier_type'];
     $referred_by = $_POST['referred_by'];
     
-    // Variabel khusus Tier B
     $master_account_id = $_POST['master_account_id'] ?? null;
-    $capital_amount = isset($_POST['capital_amount']) ? (float)$_POST['capital_amount'] : 0;
+    // Pengecekan aman input modal
+    $capital_amount = (isset($_POST['capital_amount']) && $_POST['capital_amount'] !== '') ? (float)$_POST['capital_amount'] : 0;
 
     if ($journal->addClient($client_name, $tier_type, $referred_by, $master_account_id, $capital_amount)) {
         $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
@@ -52,7 +51,10 @@ unset($_SESSION['flash_msg']);
 
 $affiliates = $journal->getAffiliates();
 $clients_data = $journal->getClients();
-$master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdown
+
+// Ambil pemisahan identitas akun dari database
+$tier_a_accounts = $journal->getActiveAccounts('Client_External');
+$tier_b_accounts = $journal->getActiveAccounts('Master_Joint'); 
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -188,6 +190,7 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                     <div>
                         <label class="block text-gray-500 text-xs font-mono mb-2">TIER PAKET (30 HARI)</label>
                         <select id="tier_selector" name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
+                            <option value="" disabled selected>-- Pilih Tier Klien --</option>
                             <option value="Tier_A">Tier A (EA VPS - 400k)</option>
                             <option value="Tier_B">Tier B (Joint Slot - 200k)</option>
                         </select>
@@ -207,19 +210,16 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                         </button>
                     </div>
 
-                    <div id="tier_b_panel" class="hidden col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 border border-electric-blue rounded bg-gray-900">
+                    <div id="extended_panel" class="hidden col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 border border-electric-blue rounded bg-gray-900">
                         <div>
-                            <label class="block text-electric-blue text-xs font-mono mb-2">LINK TO MASTER ACCOUNT (KHUSUS TIER B)</label>
-                            <select name="master_account_id" class="input-dark w-full px-3 py-2 rounded border-electric-blue">
-                                <option value="">-- Pilih Akun Master Tempat Modal Digabung --</option>
-                                <?php foreach($master_accounts as $acc): ?>
-                                    <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
-                                <?php endforeach; ?>
+                            <label id="account_label" class="block text-electric-blue text-xs font-mono mb-2">LINK TO ACCOUNT ID</label>
+                            <select name="master_account_id" id="dynamic_account_select" class="input-dark w-full px-3 py-2 rounded border-electric-blue" required>
+                                <option value="">-- Pilih Akun --</option>
                             </select>
                         </div>
-                        <div>
+                        <div id="capital_panel">
                             <label class="block text-electric-blue text-xs font-mono mb-2">CLIENT CAPITAL DEPOSIT (USC)</label>
-                            <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 5000000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
+                            <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 50000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
                         </div>
                     </div>
                 </form>
@@ -371,20 +371,46 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
             });
         }, 1000);
 
-        // LOGIKA TOGGLE PANEL TIER B
+        // LOGIKA DYNAMIC ACCOUNT SELECTOR (TIER A & TIER B)
         const tierSelector = document.getElementById('tier_selector');
-        const tierBPanel = document.getElementById('tier_b_panel');
+        const extendedPanel = document.getElementById('extended_panel');
+        const capitalPanel = document.getElementById('capital_panel');
+        const dynamicSelect = document.getElementById('dynamic_account_select');
+        const accountLabel = document.getElementById('account_label');
 
-        tierSelector.addEventListener('change', function() {
-            if (this.value === 'Tier_B') {
-                tierBPanel.classList.remove('hidden');
+        // Mengambil array akun dari PHP ke JS
+        const accountsA = [
+            <?php foreach($tier_a_accounts as $a) echo "{id:'{$a['account_id']}', name:'".addslashes($a['account_name'])."'},"; ?>
+        ];
+        const accountsB = [
+            <?php foreach($tier_b_accounts as $a) echo "{id:'{$a['account_id']}', name:'".addslashes($a['account_name'])."'},"; ?>
+        ];
+
+        function updatePanel() {
+            dynamicSelect.innerHTML = '<option value="">-- Pilih Akun Target --</option>';
+            if (tierSelector.value === 'Tier_A') {
+                extendedPanel.classList.remove('hidden');
+                capitalPanel.classList.add('hidden'); // Sembunyikan input modal USC untuk Tier A
+                accountLabel.innerText = "LINK TO EXTERNAL ACCOUNT (TIER A)";
+                accountsA.forEach(acc => {
+                    dynamicSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+                });
+                document.querySelector('input[name="capital_amount"]').removeAttribute('required');
+            } else if (tierSelector.value === 'Tier_B') {
+                extendedPanel.classList.remove('hidden');
+                capitalPanel.classList.remove('hidden'); // Tampilkan input modal USC untuk Tier B
+                accountLabel.innerText = "LINK TO MASTER JOINT ACCOUNT (TIER B)";
+                accountsB.forEach(acc => {
+                    dynamicSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+                });
+                document.querySelector('input[name="capital_amount"]').setAttribute('required', 'true');
             } else {
-                tierBPanel.classList.add('hidden');
-                // Reset nilai input jika dikembalikan ke Tier A
-                tierBPanel.querySelector('select').value = '';
-                tierBPanel.querySelector('input').value = '';
+                extendedPanel.classList.add('hidden');
             }
-        });
+        }
+
+        tierSelector.addEventListener('change', updatePanel);
+        updatePanel(); // Inisialisasi awal
     </script>
 </body>
 </html>

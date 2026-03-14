@@ -246,6 +246,9 @@ class JournalManager {
         return $stmt->execute();
     }
 
+    // ========================================================
+    // ENGINE PENDAFTARAN KLIEN (DIPERBARUI UNTUK LOCK IDENTITAS)
+    // ========================================================
     public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
         try {
             $this->conn->beginTransaction();
@@ -253,6 +256,7 @@ class JournalManager {
             $ref_val = empty($referred_by) ? null : $referred_by;
             $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
             
+            // 1. Simpan Data Induk Klien
             $stmt = $this->conn->prepare("
                 INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
                 VALUES (:name, :tier, 'Trial', :trial_end, :ref)
@@ -265,14 +269,18 @@ class JournalManager {
 
             $client_id = $this->conn->lastInsertId();
 
-            if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
-                // Diubah menjadi capital_amount_usc
+            // 2. Tautkan ke Akun yang Dipilih (Berlaku untuk Tier A dan Tier B)
+            if (!empty($master_account_id)) {
                 $stmtFund = $this->conn->prepare("
                     INSERT INTO client_funds (client_id, capital_amount_usc, associated_master_account_id) 
                     VALUES (:cid, :cap, :acc_id)
                 ");
                 $stmtFund->bindParam(':cid', $client_id);
-                $stmtFund->bindParam(':cap', $capital_amount);
+                
+                // Jika Tier A, modal otomatis 0 karena mereka mengelola modal sendiri di luar sistem PAMM kita
+                $cap = ($tier_type === 'Tier_B') ? $capital_amount : 0;
+                
+                $stmtFund->bindParam(':cap', $cap);
                 $stmtFund->bindParam(':acc_id', $master_account_id);
                 $stmtFund->execute();
             }
@@ -351,7 +359,6 @@ class JournalManager {
 
         if (!$account) return null;
 
-        // Total Akun murni menggunakan satuan Cent (USC) tanpa dikonversi ke IDR
         $total_account_usc = (float)$account['initial_balance_cent'];
 
         $stmtFund = $this->conn->prepare("
@@ -378,7 +385,6 @@ class JournalManager {
             ];
         }
 
-        // Kalkulasi proporsi murni menggunakan nilai USC
         $client_usc = (float)$fund['capital_amount_usc'];
         $tommy_usc = $total_account_usc - $client_usc;
 
@@ -594,12 +600,10 @@ $all_accounts = $journal->getAllAccounts();
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
                     <span class="nav-text ml-3">Dashboard</span>
                 </a>
-
                 <a href="input" class="group flex items-center py-2 px-3 hover:bg-gray-800 rounded border-l-2 border-transparent text-gray-400 hover:text-white transition-colors whitespace-nowrap overflow-hidden mb-2">
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                     <span class="nav-text ml-3">Data Entry</span>
                 </a>
-
                 <a href="report" class="group flex items-center py-2 px-3 hover:bg-gray-800 rounded border-l-2 border-transparent text-gray-400 hover:text-white transition-colors whitespace-nowrap overflow-hidden mb-2">
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
                     <span class="nav-text ml-3">Annual Report</span>
@@ -614,12 +618,10 @@ $all_accounts = $journal->getAllAccounts();
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
                     <span class="nav-text ml-3">Client CRM</span>
                 </a>
-
                 <a href="distribution" class="group flex items-center py-2 px-3 hover:bg-gray-800 rounded border-l-2 border-transparent text-gray-400 hover:text-white transition-colors whitespace-nowrap overflow-hidden mb-2">
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     <span class="nav-text ml-3">Profit Dist.</span>
                 </a>
-
                 <a href="affiliates" class="group flex items-center py-2 px-3 hover:bg-gray-800 rounded border-l-2 border-transparent text-gray-400 hover:text-white transition-colors whitespace-nowrap overflow-hidden mb-2">
                     <svg class="w-5 h-5 shrink-0 transition-colors group-hover:text-neon-green" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666M19.242 21.25a11.966 11.966 0 01-8.242 2.25 11.966 11.966 0 01-8.242-2.25m16.484 0a12.01 12.01 0 00-3.32-3.32m-3.32 3.32A11.966 11.966 0 0111 23.5c-2.87 0-5.54-.954-7.72-2.58m16.484 0A12.01 12.01 0 0019 18m-8.5-4a4.5 4.5 0 100-9 4.5 4.5 0 000 9z" /></svg>
                     <span class="nav-text ml-3">Affiliates</span>
@@ -675,7 +677,8 @@ $all_accounts = $journal->getAllAccounts();
                         <label class="block text-gray-500 text-xs font-mono mb-2">LEDGER CATEGORY</label>
                         <select name="account_category" required class="input-dark w-full px-3 py-2 rounded">
                             <option value="Personal">Personal Equity</option>
-                            <option value="Master_Joint">Managed Funds (PAMM)</option>
+                            <option value="Master_Joint">Master Joint (Tier B / PAMM)</option>
+                            <option value="Client_External">Client External (Tier A)</option>
                         </select>
                     </div>
                     <div>
@@ -719,7 +722,7 @@ $all_accounts = $journal->getAllAccounts();
                                         <input type="hidden" name="account_id" value="<?= $acc['account_id'] ?>">
                                         <?php if ($acc['status'] == 'Active'): ?>
                                             <input type="hidden" name="new_status" value="Inactive">
-                                            <button type="submit" onclick="return confirm('Nonaktifkan akun ini? Akun ini tidak akan muncul lagi di halaman entri data.')" class="text-xs bg-transparent border border-red-800 text-neon-red hover:text-white hover:bg-neon-red px-3 py-1 rounded transition-colors">
+                                            <button type="submit" onclick="return confirm('Nonaktifkan akun ini? Akun ini tidak akan muncul lagi di dropdown entri data.')" class="text-xs bg-transparent border border-red-800 text-neon-red hover:text-white hover:bg-neon-red px-3 py-1 rounded transition-colors">
                                                 DISABLE
                                             </button>
                                         <?php else: ?>
@@ -1079,17 +1082,16 @@ $active_portfolio = $_SESSION['active_portfolio'];
 $portfolio_label = ($active_portfolio === 'Personal') ? 'PERSONAL EQUITY' : 'MANAGED FUNDS (PAMM)';
 
 $journal = new JournalManager();
-$usd_rate = $journal->getUsdRate();
 
-// Proses Add Klien (Kini mendukung input modal secara langsung)
+// Proses Add Klien 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_client') {
     $client_name = trim($_POST['client_name']);
     $tier_type = $_POST['tier_type'];
     $referred_by = $_POST['referred_by'];
     
-    // Variabel khusus Tier B
     $master_account_id = $_POST['master_account_id'] ?? null;
-    $capital_amount = isset($_POST['capital_amount']) ? (float)$_POST['capital_amount'] : 0;
+    // Pengecekan aman input modal
+    $capital_amount = (isset($_POST['capital_amount']) && $_POST['capital_amount'] !== '') ? (float)$_POST['capital_amount'] : 0;
 
     if ($journal->addClient($client_name, $tier_type, $referred_by, $master_account_id, $capital_amount)) {
         $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KLIEN BARU DIDAFTARKAN. MASA TRIAL 48 JAM DIMULAI.</div>";
@@ -1117,7 +1119,10 @@ unset($_SESSION['flash_msg']);
 
 $affiliates = $journal->getAffiliates();
 $clients_data = $journal->getClients();
-$master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdown
+
+// Ambil pemisahan identitas akun dari database
+$tier_a_accounts = $journal->getActiveAccounts('Client_External');
+$tier_b_accounts = $journal->getActiveAccounts('Master_Joint'); 
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -1253,6 +1258,7 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                     <div>
                         <label class="block text-gray-500 text-xs font-mono mb-2">TIER PAKET (30 HARI)</label>
                         <select id="tier_selector" name="tier_type" required class="input-dark w-full px-3 py-2 rounded">
+                            <option value="" disabled selected>-- Pilih Tier Klien --</option>
                             <option value="Tier_A">Tier A (EA VPS - 400k)</option>
                             <option value="Tier_B">Tier B (Joint Slot - 200k)</option>
                         </select>
@@ -1272,19 +1278,16 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
                         </button>
                     </div>
 
-                    <div id="tier_b_panel" class="hidden col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 border border-electric-blue rounded bg-gray-900">
+                    <div id="extended_panel" class="hidden col-span-1 md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 border border-electric-blue rounded bg-gray-900">
                         <div>
-                            <label class="block text-electric-blue text-xs font-mono mb-2">LINK TO MASTER ACCOUNT (KHUSUS TIER B)</label>
-                            <select name="master_account_id" class="input-dark w-full px-3 py-2 rounded border-electric-blue">
-                                <option value="">-- Pilih Akun Master Tempat Modal Digabung --</option>
-                                <?php foreach($master_accounts as $acc): ?>
-                                    <option value="<?= $acc['account_id'] ?>"><?= htmlspecialchars($acc['account_name']) ?></option>
-                                <?php endforeach; ?>
+                            <label id="account_label" class="block text-electric-blue text-xs font-mono mb-2">LINK TO ACCOUNT ID</label>
+                            <select name="master_account_id" id="dynamic_account_select" class="input-dark w-full px-3 py-2 rounded border-electric-blue" required>
+                                <option value="">-- Pilih Akun --</option>
                             </select>
                         </div>
-                        <div>
+                        <div id="capital_panel">
                             <label class="block text-electric-blue text-xs font-mono mb-2">CLIENT CAPITAL DEPOSIT (USC)</label>
-                            <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 5000000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
+                            <input type="number" step="0.01" name="capital_amount" placeholder="Misal: 50000" class="input-dark w-full px-3 py-2 rounded text-neon-green border-electric-blue">
                         </div>
                     </div>
                 </form>
@@ -1436,20 +1439,46 @@ $master_accounts = $journal->getActiveAccounts('Master_Joint'); // Untuk dropdow
             });
         }, 1000);
 
-        // LOGIKA TOGGLE PANEL TIER B
+        // LOGIKA DYNAMIC ACCOUNT SELECTOR (TIER A & TIER B)
         const tierSelector = document.getElementById('tier_selector');
-        const tierBPanel = document.getElementById('tier_b_panel');
+        const extendedPanel = document.getElementById('extended_panel');
+        const capitalPanel = document.getElementById('capital_panel');
+        const dynamicSelect = document.getElementById('dynamic_account_select');
+        const accountLabel = document.getElementById('account_label');
 
-        tierSelector.addEventListener('change', function() {
-            if (this.value === 'Tier_B') {
-                tierBPanel.classList.remove('hidden');
+        // Mengambil array akun dari PHP ke JS
+        const accountsA = [
+            <?php foreach($tier_a_accounts as $a) echo "{id:'{$a['account_id']}', name:'".addslashes($a['account_name'])."'},"; ?>
+        ];
+        const accountsB = [
+            <?php foreach($tier_b_accounts as $a) echo "{id:'{$a['account_id']}', name:'".addslashes($a['account_name'])."'},"; ?>
+        ];
+
+        function updatePanel() {
+            dynamicSelect.innerHTML = '<option value="">-- Pilih Akun Target --</option>';
+            if (tierSelector.value === 'Tier_A') {
+                extendedPanel.classList.remove('hidden');
+                capitalPanel.classList.add('hidden'); // Sembunyikan input modal USC untuk Tier A
+                accountLabel.innerText = "LINK TO EXTERNAL ACCOUNT (TIER A)";
+                accountsA.forEach(acc => {
+                    dynamicSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+                });
+                document.querySelector('input[name="capital_amount"]').removeAttribute('required');
+            } else if (tierSelector.value === 'Tier_B') {
+                extendedPanel.classList.remove('hidden');
+                capitalPanel.classList.remove('hidden'); // Tampilkan input modal USC untuk Tier B
+                accountLabel.innerText = "LINK TO MASTER JOINT ACCOUNT (TIER B)";
+                accountsB.forEach(acc => {
+                    dynamicSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+                });
+                document.querySelector('input[name="capital_amount"]').setAttribute('required', 'true');
             } else {
-                tierBPanel.classList.add('hidden');
-                // Reset nilai input jika dikembalikan ke Tier A
-                tierBPanel.querySelector('select').value = '';
-                tierBPanel.querySelector('input').value = '';
+                extendedPanel.classList.add('hidden');
             }
-        });
+        }
+
+        tierSelector.addEventListener('change', updatePanel);
+        updatePanel(); // Inisialisasi awal
     </script>
 </body>
 </html>

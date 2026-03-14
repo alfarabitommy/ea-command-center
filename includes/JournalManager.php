@@ -129,6 +129,9 @@ class JournalManager {
         return $stmt->execute();
     }
 
+    // ========================================================
+    // ENGINE PENDAFTARAN KLIEN (DIPERBARUI UNTUK LOCK IDENTITAS)
+    // ========================================================
     public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
         try {
             $this->conn->beginTransaction();
@@ -136,6 +139,7 @@ class JournalManager {
             $ref_val = empty($referred_by) ? null : $referred_by;
             $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
             
+            // 1. Simpan Data Induk Klien
             $stmt = $this->conn->prepare("
                 INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
                 VALUES (:name, :tier, 'Trial', :trial_end, :ref)
@@ -148,14 +152,18 @@ class JournalManager {
 
             $client_id = $this->conn->lastInsertId();
 
-            if ($tier_type === 'Tier_B' && !empty($master_account_id) && $capital_amount > 0) {
-                // Diubah menjadi capital_amount_usc
+            // 2. Tautkan ke Akun yang Dipilih (Berlaku untuk Tier A dan Tier B)
+            if (!empty($master_account_id)) {
                 $stmtFund = $this->conn->prepare("
                     INSERT INTO client_funds (client_id, capital_amount_usc, associated_master_account_id) 
                     VALUES (:cid, :cap, :acc_id)
                 ");
                 $stmtFund->bindParam(':cid', $client_id);
-                $stmtFund->bindParam(':cap', $capital_amount);
+                
+                // Jika Tier A, modal otomatis 0 karena mereka mengelola modal sendiri di luar sistem PAMM kita
+                $cap = ($tier_type === 'Tier_B') ? $capital_amount : 0;
+                
+                $stmtFund->bindParam(':cap', $cap);
                 $stmtFund->bindParam(':acc_id', $master_account_id);
                 $stmtFund->execute();
             }
@@ -234,7 +242,6 @@ class JournalManager {
 
         if (!$account) return null;
 
-        // Total Akun murni menggunakan satuan Cent (USC) tanpa dikonversi ke IDR
         $total_account_usc = (float)$account['initial_balance_cent'];
 
         $stmtFund = $this->conn->prepare("
@@ -261,7 +268,6 @@ class JournalManager {
             ];
         }
 
-        // Kalkulasi proporsi murni menggunakan nilai USC
         $client_usc = (float)$fund['capital_amount_usc'];
         $tommy_usc = $total_account_usc - $client_usc;
 
