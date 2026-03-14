@@ -111,27 +111,74 @@ class JournalManager {
         return $report;
     }
 
+    // ========================================================
+    // MODUL AFILIASI & PORTAL MARKETING (UPDATED)
+    // ========================================================
+
     public function getAffiliates() {
-        $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY total_unpaid_commission DESC, marketer_name ASC");
+        // Data diurutkan berdasarkan yang "Request Payout" duluan, baru berdasarkan komisi tertinggi
+        $stmt = $this->conn->prepare("SELECT * FROM affiliates ORDER BY FIELD(payout_status, 'Requested', 'Idle'), total_unpaid_commission DESC, marketer_name ASC");
         $stmt->execute();
         return $stmt->fetchAll();
     }
 
-    public function addAffiliate($marketer_name) {
-        $stmt = $this->conn->prepare("INSERT INTO affiliates (marketer_name, total_unpaid_commission) VALUES (:name, 0.00)");
-        $stmt->bindParam(':name', $marketer_name);
-        return $stmt->execute();
+    public function addAffiliate($marketer_name, $username, $password) {
+        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+        try {
+            $stmt = $this->conn->prepare("INSERT INTO affiliates (marketer_name, username, password, total_unpaid_commission, payout_status) VALUES (:name, :user, :pass, 0.00, 'Idle')");
+            $stmt->bindParam(':name', $marketer_name);
+            $stmt->bindParam(':user', $username);
+            $stmt->bindParam(':pass', $hashed_password);
+            return $stmt->execute();
+        } catch (Exception $e) {
+            return false; // Gagal biasanya karena username sudah dipakai (UNIQUE)
+        }
     }
 
     public function payoutAffiliate($affiliate_id) {
-        $stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = 0.00 WHERE affiliate_id = :id");
+        // Melunasi tagihan dan mengembalikan status ke 'Idle'
+        $stmt = $this->conn->prepare("UPDATE affiliates SET total_unpaid_commission = 0.00, payout_status = 'Idle' WHERE affiliate_id = :id");
+        $stmt->bindParam(':id', $affiliate_id);
+        return $stmt->execute();
+    }
+
+    // Fungsi Backend untuk Portal Login Marketer Nanti
+    public function loginAffiliate($username, $password) {
+        $stmt = $this->conn->prepare("SELECT * FROM affiliates WHERE username = :user");
+        $stmt->bindParam(':user', $username);
+        $stmt->execute();
+        $affiliate = $stmt->fetch();
+        
+        if ($affiliate && password_verify($password, $affiliate['password'])) {
+            return $affiliate;
+        }
+        return false;
+    }
+
+    // Fungsi Backend untuk mengambil Klien khusus milik 1 Marketer
+    public function getAffiliateClients($affiliate_id) {
+        $stmt = $this->conn->prepare("
+            SELECT client_name, tier_type, status, trial_end_date, subscription_end_date 
+            FROM clients 
+            WHERE referred_by = :id 
+            ORDER BY FIELD(status, 'Active', 'Trial', 'Expired'), created_at DESC
+        ");
+        $stmt->bindParam(':id', $affiliate_id);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    // Fungsi Marketer menekan tombol Tarik Komisi
+    public function requestAffiliatePayout($affiliate_id) {
+        $stmt = $this->conn->prepare("UPDATE affiliates SET payout_status = 'Requested' WHERE affiliate_id = :id AND total_unpaid_commission > 0");
         $stmt->bindParam(':id', $affiliate_id);
         return $stmt->execute();
     }
 
     // ========================================================
-    // ENGINE PENDAFTARAN KLIEN (DIPERBARUI UNTUK LOCK IDENTITAS)
+    // MODUL CRM & PAMM 
     // ========================================================
+
     public function addClient($name, $tier_type, $referred_by = null, $master_account_id = null, $capital_amount = 0) {
         try {
             $this->conn->beginTransaction();
@@ -139,7 +186,6 @@ class JournalManager {
             $ref_val = empty($referred_by) ? null : $referred_by;
             $trial_end = date('Y-m-d H:i:s', strtotime('+48 hours'));
             
-            // 1. Simpan Data Induk Klien
             $stmt = $this->conn->prepare("
                 INSERT INTO clients (client_name, tier_type, status, trial_end_date, referred_by) 
                 VALUES (:name, :tier, 'Trial', :trial_end, :ref)
@@ -152,17 +198,13 @@ class JournalManager {
 
             $client_id = $this->conn->lastInsertId();
 
-            // 2. Tautkan ke Akun yang Dipilih (Berlaku untuk Tier A dan Tier B)
             if (!empty($master_account_id)) {
                 $stmtFund = $this->conn->prepare("
                     INSERT INTO client_funds (client_id, capital_amount_usc, associated_master_account_id) 
                     VALUES (:cid, :cap, :acc_id)
                 ");
                 $stmtFund->bindParam(':cid', $client_id);
-                
-                // Jika Tier A, modal otomatis 0 karena mereka mengelola modal sendiri di luar sistem PAMM kita
                 $cap = ($tier_type === 'Tier_B') ? $capital_amount : 0;
-                
                 $stmtFund->bindParam(':cap', $cap);
                 $stmtFund->bindParam(':acc_id', $master_account_id);
                 $stmtFund->execute();

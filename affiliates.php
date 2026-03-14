@@ -7,11 +7,13 @@ $journal = new JournalManager();
 // Proses Add Marketer
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_affiliate') {
     $marketer_name = trim($_POST['marketer_name']);
+    $username = trim($_POST['username']);
+    $password = $_POST['password'];
 
-    if ($journal->addAffiliate($marketer_name)) {
-        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] MARKETER BARU BERHASIL DIDAFTARKAN.</div>";
+    if ($journal->addAffiliate($marketer_name, $username, $password)) {
+        $_SESSION['flash_msg'] = "<div class='bg-neon-green text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] MARKETER & AKUN LOGIN BERHASIL DIBUAT.</div>";
     } else {
-        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENDAFTARKAN MARKETER.</div>";
+        $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MENYIMPAN. (Mungkin Username sudah dipakai).</div>";
     }
     header("Location: affiliates");
     exit();
@@ -22,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $affiliate_id = $_POST['affiliate_id'];
     
     if ($journal->payoutAffiliate($affiliate_id)) {
-        $_SESSION['flash_msg'] = "<div class='bg-electric-blue text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] KOMISI DIBAYARKAN. LEDGER DIRESET KE NOL.</div>";
+        $_SESSION['flash_msg'] = "<div class='bg-electric-blue text-terminal-black font-mono px-4 py-2 rounded mb-6 font-bold'>[SUCCESS] PAYOUT APPROVED. SALDO DIRESET & STATUS REQUEST DIKOSONGKAN.</div>";
     } else {
         $_SESSION['flash_msg'] = "<div class='bg-neon-red text-white font-mono px-4 py-2 rounded mb-6'>[ERROR] GAGAL MEMPROSES PAYOUT.</div>";
     }
@@ -149,25 +151,33 @@ $affiliates = $journal->getAffiliates();
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 shrink-0">
                 <div class="bg-terminal-panel p-5 md:p-6 rounded border border-gray-800 shadow-lg lg:col-span-1">
-                    <h2 class="text-electric-blue font-mono text-xs md:text-sm font-bold mb-4">[ REGISTER NEW MARKETER ]</h2>
-                    <form method="POST" action="">
+                    <h2 class="text-electric-blue font-mono text-xs md:text-sm font-bold mb-4">[ NEW MARKETER REGISTRATION ]</h2>
+                    <form method="POST" action="" class="space-y-4">
                         <input type="hidden" name="action" value="add_affiliate">
-                        <div class="mb-4">
-                            <label class="block text-gray-500 text-xs font-mono mb-2">NAMA LENGKAP MARKETER</label>
+                        <div>
+                            <label class="block text-gray-500 text-xs font-mono mb-2">NAMA MARKETER</label>
                             <input type="text" name="marketer_name" required autocomplete="off" placeholder="Misal: Budi Santoso" class="input-dark w-full px-3 py-2 rounded">
                         </div>
-                        <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-2 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue">
-                            EXECUTE >
+                        <div>
+                            <label class="block text-gray-500 text-xs font-mono mb-2">USERNAME LOGIN</label>
+                            <input type="text" name="username" required autocomplete="off" placeholder="Misal: budimarketer" class="input-dark w-full px-3 py-2 rounded text-electric-blue">
+                        </div>
+                        <div>
+                            <label class="block text-gray-500 text-xs font-mono mb-2">PASSWORD LOGIN</label>
+                            <input type="text" name="password" required autocomplete="off" placeholder="Buat sandi sementara" class="input-dark w-full px-3 py-2 rounded text-neon-green">
+                        </div>
+                        <button type="submit" class="w-full bg-gray-800 hover:bg-electric-blue hover:text-black text-electric-blue font-mono font-bold py-3 px-4 rounded transition-colors border border-gray-700 hover:border-electric-blue mt-2">
+                            GENERATE ACCOUNT >
                         </button>
                     </form>
                 </div>
                 
                 <div class="bg-gray-900 border border-gray-800 p-5 md:p-6 rounded lg:col-span-2 flex flex-col justify-center">
-                    <h3 class="text-gray-400 font-mono text-xs md:text-sm font-bold mb-2">SYSTEM PROTOCOL:</h3>
+                    <h3 class="text-gray-400 font-mono text-xs md:text-sm font-bold mb-2">SYSTEM PROTOCOL V2.0:</h3>
                     <ul class="text-[10px] md:text-xs text-gray-500 space-y-2 font-mono">
-                        <li>> Marketer akan muncul di pilihan Dropdown saat Anda mendaftarkan klien baru di menu <span class="text-white">Client CRM</span>.</li>
-                        <li>> Komisi tetap senilai <span class="text-neon-green">Rp 100.000</span> akan otomatis ditambahkan ke saldo Marketer setiap kali klien Tier A (VPS+EA) mereka berubah status menjadi PAID.</li>
-                        <li>> Gunakan tombol <span class="text-electric-blue">PAYOUT</span> HANYA setelah Anda berhasil mentransfer komisi tersebut ke rekening Marketer. Saldo akan hangus (direset ke nol).</li>
+                        <li>> Marketer akan otomatis diberikan akses ke <span class="text-electric-blue">Portal Login Eksternal</span> menggunakan Username dan Password yang Anda buatkan.</li>
+                        <li>> Komisi <span class="text-neon-green">Rp 100.000</span> otomatis masuk ke saldo mereka setiap kali klien mereka Aktif, atau melakukan Perpanjangan (Recurring) VPS bulanan.</li>
+                        <li>> Jika Marketer menekan tombol Tarik Dana dari HP mereka, status di tabel bawah akan menyala <span class="text-neon-red animate-pulse">MERAH BERKEDIP</span>.</li>
                     </ul>
                 </div>
             </div>
@@ -177,9 +187,9 @@ $affiliates = $journal->getAffiliates();
                     <thead>
                         <tr class="bg-gray-900 border-b border-gray-700 font-mono text-[10px] md:text-xs text-gray-400">
                             <th class="p-3 md:p-4 uppercase tracking-wider">ID</th>
-                            <th class="p-3 md:p-4 uppercase tracking-wider">Marketer Name</th>
-                            <th class="p-3 md:p-4 uppercase tracking-wider text-right">Total Unpaid Commission</th>
-                            <th class="p-3 md:p-4 uppercase tracking-wider text-right">Action</th>
+                            <th class="p-3 md:p-4 uppercase tracking-wider">Marketer Entity</th>
+                            <th class="p-3 md:p-4 uppercase tracking-wider text-right">Unpaid Commission</th>
+                            <th class="p-3 md:p-4 uppercase tracking-wider text-right">System Action</th>
                         </tr>
                     </thead>
                     <tbody class="font-mono text-xs md:text-sm">
@@ -189,19 +199,30 @@ $affiliates = $journal->getAffiliates();
                             <?php foreach($affiliates as $af): ?>
                             <tr class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
                                 <td class="p-3 md:p-4 text-gray-500">#<?= str_pad($af['affiliate_id'], 3, '0', STR_PAD_LEFT) ?></td>
-                                <td class="p-3 md:p-4 text-white font-bold"><?= htmlspecialchars($af['marketer_name']) ?></td>
+                                <td class="p-3 md:p-4">
+                                    <div class="text-white font-bold"><?= htmlspecialchars($af['marketer_name']) ?></div>
+                                    <div class="text-electric-blue text-[10px] md:text-xs mt-1">@<?= htmlspecialchars($af['username'] ?? 'no_user') ?></div>
+                                </td>
                                 <td class="p-3 md:p-4 text-right">
                                     <span class="<?= $af['total_unpaid_commission'] > 0 ? 'text-neon-green font-bold text-base md:text-lg' : 'text-gray-600' ?>">
                                         Rp <?= number_format($af['total_unpaid_commission'], 0, ',', '.') ?>
                                     </span>
                                 </td>
                                 <td class="p-3 md:p-4 text-right">
+                                    <?php if ($af['payout_status'] == 'Requested'): ?>
+                                        <div class="mb-2">
+                                            <span class="inline-block bg-red-900 text-neon-red border border-red-500 text-[10px] md:text-xs font-bold px-2 py-1 rounded animate-pulse shadow-[0_0_10px_rgba(255,0,0,0.5)]">
+                                                PAYOUT REQUESTED!
+                                            </span>
+                                        </div>
+                                    <?php endif; ?>
+
                                     <?php if ($af['total_unpaid_commission'] > 0): ?>
                                         <form method="POST" action="" class="inline-block">
                                             <input type="hidden" name="action" value="payout">
                                             <input type="hidden" name="affiliate_id" value="<?= $af['affiliate_id'] ?>">
-                                            <button type="submit" onclick="return confirm('Anda yakin telah men-transfer komisi sebesar Rp <?= number_format($af['total_unpaid_commission'], 0, ',', '.') ?> kepada <?= htmlspecialchars($af['marketer_name']) ?>? Data ini akan direset menjadi Rp 0.')" class="text-[10px] md:text-xs bg-transparent border border-electric-blue text-electric-blue hover:text-black hover:bg-electric-blue px-3 py-1 rounded transition-colors font-bold">
-                                                PROCESS PAYOUT
+                                            <button type="submit" onclick="return confirm('Anda sudah men-transfer komisi ini? Saldo Marketer akan direset 0.')" class="text-[10px] md:text-xs bg-transparent border <?= $af['payout_status'] == 'Requested' ? 'border-neon-red text-neon-red hover:bg-neon-red' : 'border-electric-blue text-electric-blue hover:bg-electric-blue' ?> hover:text-black px-3 py-2 rounded transition-colors font-bold">
+                                                <?= $af['payout_status'] == 'Requested' ? 'APPROVE & TRANSFER' : 'FORCE PAYOUT' ?>
                                             </button>
                                         </form>
                                     <?php else: ?>
@@ -243,7 +264,7 @@ $affiliates = $journal->getAffiliates();
             <span class="text-[10px] font-mono font-bold">PAMM</span>
         </a>
         
-        <button id="mobile-more-btn" class="flex flex-col items-center p-2 text-gray-500 hover:text-electric-blue focus:outline-none transition-colors">
+        <button id="mobile-more-btn" class="flex flex-col items-center p-2 text-neon-green focus:outline-none transition-colors">
             <svg class="w-6 h-6 mb-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
             <span class="text-[10px] font-mono font-bold">Menu</span>
         </button>
